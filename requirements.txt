@@ -1,0 +1,13 @@
+# Tabular pipeline
+numpy
+pandas
+pyarrow
+scikit-learn
+scipy
+
+# Wikidata bio lookup (tacticai_task2/fetch_bio.py)
+requests
+
+# Diffusion model + figures (tacticai_task2)
+torch
+matplotlib

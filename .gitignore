@@ -1,0 +1,22 @@
+# Virtualenv
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS / R noise
+.DS_Store
+.Rhistory
+
+# Derived pipeline data: 719 MB, and decisions.parquet (383 MB) and
+# freeze_frames.parquet (207 MB) both exceed GitHub's hard 100 MB file limit.
+# Everything here is regenerated from the raw StatsBomb open data by
+# pipeline/stage1_matches.py -> stage234_possessions.py -> stage5_decision_points.py.
+data/processed/
+
+# Raw StatsBomb open data is an external dependency (~12 GB), not vendored.
+# Clone it from https://github.com/statsbomb/open-data
+open-data-master/

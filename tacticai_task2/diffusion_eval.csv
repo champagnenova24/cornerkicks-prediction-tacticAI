@@ -1,0 +1,14 @@
+,0
+disc_mlp_f1,0.624113475177305
+disc_mlp_auc,0.6988340127026259
+disc_hgb_f1,0.6877192982456141
+disc_hgb_auc,0.7431036117167505
+p_shot_real_shot,0.2688956318170996
+p_shot_real_noshot,0.16375224538910602
+p_shot_gen_shot1,0.24823430057949677
+p_shot_gen_shot0,0.18206693940523486
+p_shot_gen_reallabel,0.20219349146385046
+n_holdout,485.0
+guidance_real,1.0
+guidance_ctrl,2.0
+ddim_steps,200.0

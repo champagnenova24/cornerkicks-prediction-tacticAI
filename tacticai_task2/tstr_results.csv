@@ -1,0 +1,4 @@
+setting,n_train,auc_mean,auc_std,f1_mean,f1_std
+TRTR (real -> real),1940,0.7189,0.0095,0.4474,0.0098
+TSTR (synthetic -> real),1940,0.6934,0.008,0.4082,0.0069
+AUG (real+synthetic -> real),3880,0.696,0.007,0.4187,0.0082
