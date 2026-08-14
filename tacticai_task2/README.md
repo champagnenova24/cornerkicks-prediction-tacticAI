@@ -1,5 +1,80 @@
 # TacticAI Task 2 (shot prediction from corners) on StatsBomb open data
 
+> ## Which scripts are current
+>
+> The repository keeps superseded scripts for provenance — every result below is
+> reproducible from the script that produced it, including the ones later
+> overturned. **Two naming traps are worth flagging first:**
+>
+> - **`extract_corners.py` and `extract_corners_full.py` are not versions of each
+>   other.** Both are current. The first builds the 2,473-corner **360 subset**
+>   with freeze frames, receiver matching and velocities — everything the models
+>   need. The second identifies all **41,178 corners** across 4,235 matches, with
+>   no freeze frames. Wider but shallower; neither replaces the other. Same for
+>   `add_delivery.py` (subset) vs `extract_delivery_full.py` (all matches).
+> - **`tactic_suggest3.py` is NOT the live recommender — `tactic_recommend.py`
+>   is.** But `tactic_suggest.py` *is* still live as an imported dependency
+>   (`ddim_inpaint`, `draw_panel`), even though its own published numbers are
+>   superseded. Do not delete it.
+>
+> ### Corner extraction and attributes
+>
+> | Script | Status | Scope |
+> |---|---|---|
+> | `extract_corners.py` | **current** | 360 subset, 2,473 corners: freeze frames, receiver, velocities |
+> | `extract_corners_full.py` | **current** | All 4,235 matches, 41,178 corners, no freeze frames |
+> | `add_delivery.py` | **current** | Delivery attributes, 360 subset |
+> | `extract_delivery_full.py` | **current** | Delivery attributes, all matches |
+> | `onpitch.py`, `fetch_bio.py` | **current** | On-pitch XI; Wikidata height/weight |
+> | `paths.py` | **current, library** | Resolves the StatsBomb checkout (`$OPEN_DATA` → repo root → Desktop → Downloads). Imported, not run. Use it instead of hardcoding a data path |
+>
+> ### Models
+>
+> | Script | Status | Notes |
+> |---|---|---|
+> | `train_eval.py` | **current** | Receiver + shot models, Eq. 1, 5 seeds |
+> | `diffusion_corners.py` | **current** | Set-diffusion model, training, DDIM sampler |
+> | `diffusion_eval.py` | **current** | Realism discriminators + guidance check |
+> | `quality_metrics.py`, `tstr_eval.py`, `gallery.py` | **current** | Extended metrics, TSTR, figures |
+> | `ablate_batch.py`, `ablate_projection.py` | **current** | Ablation records (both negative results) |
+> | `finish_ablation.py` | helper | One-off: evaluates the batch-512 checkpoint. Not an entry point |
+>
+> ### Recommendation — read this chain carefully
+>
+> | Script | Status | Why |
+> |---|---|---|
+> | `tactic_suggest.py` | **superseded results, live dependency** | v1. `tactic_recommend.py` imports `ddim_inpaint` and `draw_panel` from it. Its own best-of-6 numbers carry the selection bias |
+> | `tactic_suggest2.py` | superseded | v2, best-of-k selection — the bias itself |
+> | `tactic_suggest3.py` | superseded | v3. Maximised P(shot), which moves attempts but not xG; also single-model selection |
+> | **`tactic_recommend.py`** | **CURRENT** | xG-based, cross-fitted selection, ball path attached. **This is the live recommender** |
+>
+> ### Delivery and defence analysis
+>
+> | Script | Status | Notes |
+> |---|---|---|
+> | **`delivery_target_full.py`** | **CURRENT** | Authoritative zone ranking, 41,178 corners |
+> | `delivery_target.py` | **partly current** | Zone ranking superseded by the full set, but its defence-conditional and retention×payoff analyses need freeze frames and exist nowhere else |
+> | `defense_features.py` | **current** | Defensive descriptors incl. the zonal-vs-man marking proxy |
+> | `technique_effect.py` | **current** | Inswing vs outswing: IPW, cluster bootstrap, interaction scan |
+> | `synthetic_trajectories.py` | **current** | Ball paths for synthetic corners + ball-consistency metric |
+>
+> ### Run order
+>
+> ```
+> extract_corners.py -> onpitch.py -> fetch_bio.py -> add_delivery.py -> train_eval.py
+>                    -> diffusion_corners.py -> diffusion_eval.py -> tactic_recommend.py
+> extract_corners_full.py -> extract_delivery_full.py -> delivery_target_full.py
+> defense_features.py -> technique_effect.py
+> ```
+>
+> `extract_corners_full.py` requires `data/processed/decisions.parquet` from the
+> pipeline (see the top-level README), which in turn needs `match_index.csv` —
+> build it once with `pipeline/build_match_index.py`.
+>
+> Device selection is centralised in `diffusion_corners.pick_device()`
+> (CUDA → MPS → CPU), so the torch scripts run on a cluster GPU or a Mac
+> unchanged. Don't reintroduce a hardcoded `"mps"`.
+
 Reproduction of Task 2 of *TacticAI: an AI assistant for football tactics*
 (Wang et al., Nat. Commun. 15:1906, 2024), Eq. (1):
 
