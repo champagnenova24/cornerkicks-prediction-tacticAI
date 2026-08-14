@@ -19,6 +19,7 @@ mean +- std over 5 seeds.
 """
 import numpy as np
 import pandas as pd
+from paths import PROCESSED
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, roc_auc_score, precision_score, recall_score
@@ -163,8 +164,7 @@ def add_bio_features(dg_global, dc, sp):
     """Team height/weight aggregates + defending GK height per corner."""
     bio = pd.read_parquet(f"{sp}/player_bio.parquet").set_index("player_id")
     onp = pd.read_parquet(f"{sp}/onpitch.parquet").set_index("corner_id")
-    matches = pd.read_parquet(
-        "/Users/daniel/Desktop/soccer/data/processed/matches.parquet")
+    matches = pd.read_parquet(f"{PROCESSED}/matches.parquet")
     gender = matches.set_index("match_id")["gender"]
     mid_gender = dc.set_index("corner_id")["match_id"].map(
         lambda m: gender.get(int(m), "male"))

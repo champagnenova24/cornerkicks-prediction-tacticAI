@@ -21,7 +21,7 @@ from concurrent.futures import ProcessPoolExecutor
 import pandas as pd
 
 SP = os.path.dirname(os.path.abspath(__file__))
-EVENTS = '/Users/daniel/Desktop/open-data-master/data/events'
+from paths import EVENTS
 N_WORKERS = 8
 
 

@@ -17,7 +17,7 @@ from scipy.optimize import linear_sum_assignment
 
 MAX_SPEED = 9.5  # m/s cap for plausible player movement
 
-DATA = os.path.expanduser("/Users/daniel/Desktop/open-data-master/data")
+from paths import DATA
 OUT = os.path.dirname(os.path.abspath(__file__))
 
 # event types that imply the player touched the ball

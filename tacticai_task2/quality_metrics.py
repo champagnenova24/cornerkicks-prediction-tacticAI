@@ -20,13 +20,15 @@ sampled at guidance w = 1).
 
 Outputs: quality_metrics.csv, quality_pcf.csv, quality_metrics.png
 """
+import os
+
 import numpy as np
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-SP = "/private/tmp/claude-501/-Users-daniel-Desktop-open-data-master/149301ad-df98-430c-b299-a436270c69f7/scratchpad"
+SP = os.path.dirname(os.path.abspath(__file__))
 RNG = np.random.default_rng(0)
 BINS = np.linspace(0, 40, 17)          # 16 bins for distance histograms
 RMAX, NR = 30.0, 30                    # pair-correlation range / resolution

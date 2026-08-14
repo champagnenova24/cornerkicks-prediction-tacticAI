@@ -14,7 +14,7 @@ import requests
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 
-DATA = "/Users/daniel/Desktop/open-data-master/data"
+from paths import DATA
 OUT = os.path.dirname(os.path.abspath(__file__))
 API = "https://www.wikidata.org/w/api.php"
 HDRS = {"User-Agent": "corner-kick-research/0.1 (danielytq24@gmail.com)"}

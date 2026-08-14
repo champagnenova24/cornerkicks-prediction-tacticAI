@@ -2,17 +2,24 @@
 import hashlib
 import os
 
+# Outputs live inside the project no matter where the project directory sits.
+_PROJECT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # StatsBomb open-data checkout: env override first, then known locations.
 _CANDIDATES = [os.environ.get('OPEN_DATA', ''),
+               os.path.join(_PROJECT, 'open-data-master'),
                os.path.expanduser('~/Desktop/open-data-master'),
                os.path.expanduser('~/Downloads/open-data-master')]
-OPEN_DATA = next(p for p in _CANDIDATES if p and os.path.isdir(p))
+try:
+    OPEN_DATA = next(p for p in _CANDIDATES if p and os.path.isdir(p))
+except StopIteration:
+    raise SystemExit(
+        'StatsBomb open-data checkout not found. Set $OPEN_DATA or clone\n'
+        'https://github.com/statsbomb/open-data into the repository root as\n'
+        f'{os.path.join(_PROJECT, "open-data-master")}')
 EVENTS_DIR = os.path.join(OPEN_DATA, 'data', 'events')
 THREESIXTY_DIR = os.path.join(OPEN_DATA, 'data', 'three-sixty')
 MATCH_INDEX = os.path.join(OPEN_DATA, 'match_index.csv')
-
-# Outputs live inside the project no matter where the project directory sits.
-_PROJECT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROCESSED = os.path.join(_PROJECT, 'data', 'processed')
 
 PITCH_X, PITCH_Y = 120.0, 80.0

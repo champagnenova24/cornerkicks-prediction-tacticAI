@@ -17,17 +17,27 @@ bias correction overturned them.
 ## Data
 
 This repository contains **code and derived results only**. It expects the raw
-StatsBomb open data locally:
+StatsBomb open data locally; the simplest placement is inside the repository
+(it is gitignored):
 
 ```bash
-git clone https://github.com/statsbomb/open-data.git ~/Desktop/open-data-master
+git clone https://github.com/statsbomb/open-data.git open-data-master
 ```
 
 `pipeline/common.py` resolves the dataset from `$OPEN_DATA`, then
-`~/Desktop/open-data-master`, then `~/Downloads/open-data-master`.
+`<repo>/open-data-master`, then `~/Desktop/open-data-master`, then
+`~/Downloads/open-data-master`.
+
+Stage 1 needs a `match_index.csv` at the root of the checkout, which is not
+part of the StatsBomb repository. Build it once with:
+
+```bash
+cd pipeline && ../.venv/bin/python build_match_index.py
+```
 
 The intermediate parquets in `data/processed/` (719 MB) are **not committed** —
-two of them exceed GitHub's 100 MB file limit. Regenerate them with:
+two of them exceed GitHub's 100 MB file limit. Drop a shared copy into
+`data/processed/` (also gitignored), or regenerate them with:
 
 ```bash
 python -m venv .venv && ./.venv/bin/pip install -r requirements.txt

@@ -8,7 +8,7 @@ import json
 import os
 import pandas as pd
 
-DATA = "/Users/daniel/Desktop/open-data-master/data"
+from paths import DATA
 SP = os.path.dirname(os.path.abspath(__file__))
 
 
