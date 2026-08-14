@@ -1187,6 +1187,34 @@ Four iterations of the same idea. **Only the last is live.**
 | `defense_features.py` | current | Defensive descriptors from the freeze frame: six-yard congestion, defensive line, post coverage, keeper depth, and a zonal-vs-man marking proxy (mean defender→nearest-attacker distance). → `defense_features.parquet/.csv` |
 | `technique_effect.py` | current | Inswinging vs outswinging on attempts / xG / goals: raw, IPW-adjusted, cluster-bootstrapped, plus a nine-stratum interaction scan. The evidence the delivery recommendation rests on. → `technique_effect.csv`, `technique_interactions.csv` |
 
+### Output collisions
+
+Three filenames are written by more than one script, across all 42 distinct
+outputs in the project. In every case the pair is a script and its own later
+iteration, so the collision only bites if you run the **older** one after the
+newer — which would silently replace current results with superseded ones.
+
+| Filename | Written by | Currently on disk from |
+|---|---|---|
+| `tactic_suggestions.csv` | `tactic_suggest.py`, `tactic_suggest2.py` | **v2** — header is `corner_id, shot_real, p_original, p_attack_1, p_attack_bestk, p_defense_1, p_defense_bestk`; the `_bestk` columns are v2's, and v1 writes `p_attack_adj` / `p_defense_adj` instead |
+| `tactic_suggestions.png` | `tactic_suggest.py`, `tactic_suggest2.py` | **v2** — same mtime as the csv above |
+| `ablation_batch.csv` | `ablate_batch.py`, `finish_ablation.py` | **`finish_ablation.py`** — it appended the batch-512 row to the three `ablate_batch.py` had written, so the file is the union and neither script alone reproduces it |
+
+Ownership is decidable from the file contents in each case, so nothing on disk
+is actually ambiguous — but running `tactic_suggest.py` now would overwrite v2's
+results with v1's under the same names and lose that.
+
+**Separately, a self-overwrite risk.** `diffusion_corners.py` writes
+`diffusion_model{tag}.pt` and `diffusion_loss{tag}.csv`, where `tag` comes from
+`--tag`. Re-running with a tag that already exists silently replaces a
+checkpoint that took ~45 minutes to train, with no warning. The five committed
+checkpoints (`diffusion_model.pt` plus `_b64/_b128/_b256/_b512`) are each the
+product of one such run.
+
+`tactic_suggest3.py` and `tactic_recommend.py` write under distinct names
+(`tactic_joint.*` and `tactic_recommendation*`), so the two most recent
+iterations do not collide with anything.
+
 ### Data files
 
 | File | What it is |
