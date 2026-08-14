@@ -1110,41 +1110,102 @@ arrival point.
 
 ## Files
 
+Every script, grouped by role, with its status. **Superseded scripts are kept
+deliberately** — every result in this README, including the ones later
+overturned, is reproducible from the script that produced it. Status meanings:
+
+- **current** — the live version for its job
+- **current, library** — imported by other scripts, not run directly
+- **superseded** — an earlier iteration; its results are quoted here only where
+  marked as such
+- **superseded, live import** — the results are stale but other current scripts
+  import code from it, so it must not be deleted
+
+### 1. Corner extraction — 360 subset (has freeze frames)
+
+| File | Status | What it is |
+|---|---|---|
+| `paths.py` | current, library | Resolves the StatsBomb checkout (`$OPEN_DATA` → repo root → Desktop → Downloads). Import this rather than hardcoding a data path. |
+| `extract_corners.py` | current | Builds the Task-2 corner dataset from raw events: labels, receiver matching, freeze-frame normalisation, velocity estimation from consecutive frames. → `corners.parquet`, `corner_players.parquet` |
+| `onpitch.py` | current | Reconstructs the on-pitch XI and keeper at every corner from Starting XI / Substitution / Tactical Shift / red cards. → `onpitch.parquet` |
+| `fetch_bio.py` | current | Wikidata height (P2048) and weight (P2067) for all 4,079 players. ~30 min, hits the API. → `player_bio.parquet` |
+| `add_delivery.py` | current | Delivery attributes (technique / height / body part / length) for the 2,473 subset corners. → `corner_delivery.parquet` |
+
+### 2. Corner extraction — full dataset (no freeze frames)
+
+Not newer versions of the above — a **different scope**. These cover all 4,235
+matches and 41,178 corners, at the cost of having no 360 data, so nothing built
+on them can condition on the defensive setup.
+
+| File | Status | What it is |
+|---|---|---|
+| `extract_corners_full.py` | current | Identifies every corner in the full dataset from `decisions.parquet` (first decision of a From Corner possession, taken from the corner arc). Validated: recovers 2,472 of the 2,473 exactly-identified subset corners. → `corners_full_raw.parquet` |
+| `extract_delivery_full.py` | current | Delivery attributes for all 41,147 corners, parsed from 12 GB of raw JSON in a process pool. → `corner_delivery_full.parquet` |
+
+### 3. Task 2 models (shot prediction from corners)
+
+| File | Status | What it is |
+|---|---|---|
+| `train_eval.py` | current | Features, receiver model, both shot models, Eq. 1, 5-seed evaluation of every configuration. Defines `CONFIGS` and `build_features`, which most later scripts import. → `results_seeds.csv`, `results_summary.csv` |
+
+### 4. Diffusion generator
+
+| File | Status | What it is |
+|---|---|---|
+| `diffusion_corners.py` | current | The set-diffusion model: data prep, permutation-equivariant denoiser, training with the laptop time-budget gate, DDIM sampler with optional pitch projection. Also `pick_device()` (CUDA → MPS → CPU) — don't reintroduce a hardcoded device. → `diffusion_model.pt`, `diffusion_split.csv`, `diffusion_loss.csv` |
+| `diffusion_eval.py` | current | Sampling, discriminator realism test, guidance check, distribution table, figure. → `synthetic_corners.parquet`, `diffusion_eval.csv`, `diffusion_distributions.csv`, `real_vs_synthetic.png` |
+| `quality_metrics.py` | current | Extended generative metrics: MMD², 1-NN, precision/recall/density/coverage, constraint violations. → `quality_metrics.csv`, `quality_pcf.csv`, `quality_metrics.png` |
+| `tstr_eval.py` | current | Train-on-synthetic, test-on-real for the shot classifier. → `tstr_results.csv` |
+| `gallery.py` | current | Real vs shot=0/shot=1-guided generations per template, plus a sample-diversity row. → `synthetic_gallery.png` |
+| `synthetic_trajectories.py` | current | Reconstructs ball paths for synthetic corners (importing the pipeline's `ball_trajectory`) and measures ball-consistency: does a generated setup converge on where the ball actually arrives. → `synthetic_corner_trajectories.parquet`, `ball_consistency.csv`, `synthetic_trajectories.png` |
+
+### 5. Ablations (both negative results)
+
+| File | Status | What it is |
+|---|---|---|
+| `ablate_batch.py` | current | Batch-size ablation, 4 arms at a fixed 30k-step budget. → `ablation_batch.csv`, `diffusion_model_b{64,128,256,512}.pt` |
+| `finish_ablation.py` | helper | One-off: evaluates the batch-512 checkpoint and merges it into `ablation_batch.csv`. Not an entry point — it runs at import. |
+| `ablate_projection.py` | current | Pitch-projection A/B: one checkpoint, one set of sampling seeds, three constraint arms, 10 discriminator splits each. Shows the constraint buys no realism. → `ablation_projection.csv` |
+
+### 6. Recommendation — read this lineage carefully
+
+Four iterations of the same idea. **Only the last is live.**
+
+| File | Status | What it is |
+|---|---|---|
+| `tactic_suggest.py` | **superseded, live import** | v1. Single guided draw, defenders pinned. Its best-of-6 numbers carry the selection bias, but `tactic_suggest2/3` and `tactic_recommend` all import `ddim_inpaint` and `draw_panel` from it. **Do not delete.** → `tactic_suggestions.csv/.png` |
+| `tactic_suggest2.py` | superseded | v2. Best-of-k candidate selection — the mechanism that turned out to be the bias. Overwrites `tactic_suggestions.csv/.png`, so whichever of v1/v2 ran last owns those files. → `tactic_suggestions.csv/.png`, `tactic_best_players.parquet` |
+| `tactic_suggest3.py` | superseded | v3. Joint shape + delivery, conditioned on the defence. Wrong on two counts: it maximised P(shot) (which moves attempts but not xG) and it selected and scored with one model. → `tactic_joint.csv`, `tactic_joint.png` |
+| **`tactic_recommend.py`** | **CURRENT** | The live recommender. xG-based rather than P(shot); cross-fitted selector/evaluator so the reported gain is unbiased; reconstructed ball path attached to every recommendation. → `tactic_recommendation.csv`, `tactic_recommendation.png`, `tactic_recommendation_gallery.png` |
+
+### 7. Delivery and defence analysis
+
+| File | Status | What it is |
+|---|---|---|
+| **`delivery_target_full.py`** | **current** | Authoritative zone analysis on all 41,178 corners. Supersedes the zone ranking in `delivery_target.py`. → `delivery_target_full.csv`, `delivery_target_full.png` |
+| `delivery_target.py` | **partly current** | Zone ranking superseded by the full set — but its defence-conditional splits and the retention × payoff decomposition need freeze frames and exist nowhere else. → `delivery_target_zones.csv`, `delivery_risk_reward.csv`, `delivery_target.png` |
+| `defense_features.py` | current | Defensive descriptors from the freeze frame: six-yard congestion, defensive line, post coverage, keeper depth, and a zonal-vs-man marking proxy (mean defender→nearest-attacker distance). → `defense_features.parquet/.csv` |
+| `technique_effect.py` | current | Inswinging vs outswinging on attempts / xG / goals: raw, IPW-adjusted, cluster-bootstrapped, plus a nine-stratum interaction scan. The evidence the delivery recommendation rests on. → `technique_effect.csv`, `technique_interactions.csv` |
+
+### Data files
+
 | File | What it is |
 |---|---|
-| `extract_corners.py` | Builds the corner dataset from the raw open data: labels, receiver matching, freeze-frame normalization, velocity estimation. Outputs `corners.parquet` + `corner_players.parquet`. |
-| `onpitch.py` | Reconstructs the on-pitch XI + keeper per corner. Outputs `onpitch.parquet`. |
-| `fetch_bio.py` | Wikidata height/weight lookup for all players. Outputs `player_bio.parquet`. |
-| `train_eval.py` | Features, receiver model, both shot models, Eq. 1, 5-seed eval of all configs. Outputs `results_seeds.csv` + `results_summary.csv`. |
-| `corners.parquet` / `.csv` | One row per corner: match, labels (`shot`, receiver metadata), flight dt, velocity coverage. |
-| `corner_players.parquet` / `.csv` | One row per visible freeze-frame player: normalized position, flags, velocity, `is_receiver`. |
-| `onpitch.parquet` | Per corner: attacking/defending player-id lists and GK ids. |
-| `player_bio.parquet` / `.csv` | Per player: name, Wikidata QID, height_cm, weight_kg (unit-cleaned). |
-| `results_seeds.csv` | Per-seed metrics for every configuration. |
-| `results_summary.csv` | Mean +- std per configuration. |
-| `diffusion_corners.py` | Set-diffusion model: data prep, denoiser, training (with the laptop benchmark gate), DDIM sampler. |
-| `diffusion_eval.py` | Sampling + discriminator realism test + guidance check + distribution table + figure. |
-| `diffusion_model.pt` | Trained EMA checkpoint (1.09M params, 60k steps). |
-| `diffusion_split.csv` | Train/holdout template split used by the diffusion experiments. |
-| `diffusion_loss.csv` | Training loss curve. |
-| `diffusion_eval.csv` | Discriminator + guidance metrics. |
-| `diffusion_distributions.csv` | Real vs synthetic feature means/stds. |
-| `synthetic_corners.parquet` | Generated corners (3 variants per held-out template: real label, shot=1, shot=0). |
-| `real_vs_synthetic.png` | Side-by-side pitch plots of real vs generated corners. |
-| `gallery.py` / `synthetic_gallery.png` | Gallery: real vs shot=0/shot=1-guided generations per template (scored by the independent shot classifier) + sample diversity row. |
-| `ablate_projection.py` / `ablation_projection.csv` | Pitch-projection A/B: one checkpoint, one set of sampling seeds, three constraint arms, 10 discriminator splits each, plus violation and goalmouth-occupancy stats. |
-| `tactic_recommend.py` / `tactic_recommendation.csv` / `.png` | Recommendation on xG rather than P(shot): attacking shape with the defence pinned, delivery target zone, and the reconstructed ball path for the observed and recommended delivery. |
-| `delivery_risk_reward.csv` | Per delivery zone: how often it reaches an attacker, and its xG unconditionally vs once won. |
-| `technique_effect.py` / `technique_effect.csv` / `technique_interactions.csv` | Outswinging vs inswinging on attempts / xG / goals: raw, IPW-adjusted, cluster-bootstrapped, plus a nine-stratum interaction scan. The evidence the delivery recommendation rests on. |
-| `defense_features.py` / `defense_features.parquet` / `.csv` | Defensive descriptors per corner from the freeze frame: marking scheme (man vs zonal, inferred from geometry), line depth, dispersion, post coverage, keeper depth. Re-tests the delivery-target conclusion against each. |
-| `delivery_target.py` / `delivery_target_zones.csv` / `delivery_target.png` | Value of the delivery target zone by xG, goals and shot attempts, with cluster-bootstrap CIs, a defensive-congestion split and a technique interaction. |
-| `tactic_suggest3.py` / `tactic_joint.csv` / `tactic_joint.png` | Joint recommendation: attacking shape conditioned on the pinned defence, plus which foot takes the corner (= technique). Includes the IPW-adjusted technique contrast and the selection-vs-signal decomposition of the best-of-k gain. |
-| `synthetic_trajectories.py` | Reconstructs the delivery for every corner (physics imported from `../pipeline/ball_trajectory.py`) and measures whether generated setups converge on the ball's arrival point. |
-| `corner_deliveries.parquet` | Cached delivery parameters per corner — reflected endpoints, flight time, height class, technique, contact height. Delete to rebuild from the raw events. |
-| `synthetic_corner_trajectories.parquet` | 60 sampled ball-path points per corner (`t`, `x`, `y`, `z`) in the reflected tacticai frame, joinable on `corner_id`. |
-| `ball_consistency.csv` | Per corner and variant: distance from the arrival point to the nearest attacker, at the kick and after velocity extrapolation. |
-| `synthetic_trajectories.png` | Three high deliveries drawn over real and generated setups. |
-
+| `corners.parquet` / `.csv` | One row per subset corner: match, labels (`shot`, receiver metadata), flight dt, velocity coverage, `reflected` flag |
+| `corner_players.parquet` / `.csv` | One row per visible freeze-frame player: normalised position, flags, velocity, `is_receiver` |
+| `corners_full_raw.parquet` | All 41,178 corners with endpoints and outcome-forward labels (no freeze frames) |
+| `corner_delivery.parquet` | Delivery attributes, 2,473 subset corners |
+| `corner_delivery_full.parquet` | Delivery attributes, 41,147 full-set corners |
+| `corner_deliveries.parquet` | Subset corners with reflected endpoints, flight time and contact height, ready for trajectory reconstruction |
+| `onpitch.parquet` | Per corner: attacking/defending player-id lists and GK ids |
+| `player_bio.parquet` / `.csv` | Per player: name, Wikidata QID, height_cm, weight_kg (unit-cleaned) |
+| `diffusion_model.pt` | Trained EMA checkpoint (1.09M params, 60k steps) |
+| `diffusion_model_b{64,128,256,512}.pt` | Batch-ablation checkpoints; load via `load_model(tag="_b128")` |
+| `diffusion_split.csv` | Train/holdout template split used by every diffusion experiment |
+| `diffusion_loss.csv`, `diffusion_loss_b*.csv` | Training loss curves |
+| `synthetic_corners.parquet` | Generated corners, 3 variants per held-out template (real label, shot=1, shot=0) |
+| `results_seeds.csv` / `results_summary.csv` | Per-seed and aggregated Task 2 metrics per configuration |
+| `tactic_best_players.parquet` | Chosen player coordinates from the v2 best-of-k loop |
 ## Reproduce
 
 ```bash
