@@ -1187,6 +1187,72 @@ Four iterations of the same idea. **Only the last is live.**
 | `defense_features.py` | current | Defensive descriptors from the freeze frame: six-yard congestion, defensive line, post coverage, keeper depth, and a zonal-vs-man marking proxy (mean defender→nearest-attacker distance). → `defense_features.parquet/.csv` |
 | `technique_effect.py` | current | Inswinging vs outswinging on attempts / xG / goals: raw, IPW-adjusted, cluster-bootstrapped, plus a nine-stratum interaction scan. The evidence the delivery recommendation rests on. → `technique_effect.csv`, `technique_interactions.csv` |
 
+### Things that can mislead you
+
+A full audit of every file in the project for names, keys and types that look
+interchangeable but are not. Six categories, in rough order of how much damage
+they can do.
+
+#### 1. `match_id` dtype is inconsistent — silent empty joins
+
+This is the one that actually bites, because it fails with **zero rows and no
+error**.
+
+| dtype | Files |
+|---|---|
+| **`str`** | `corners.parquet`, `corner_deliveries.parquet`, `defense_features.parquet` |
+| **`int64`** | `corner_delivery_full.parquet`, `corners_full_raw.parquet`, and **every** `data/processed/*.parquet` |
+
+Merging a subset file on `match_id` against a pipeline file returns nothing.
+Cast first: `df.match_id.astype(int)`. Joining on `corner_id` / `uuid` is
+unaffected — those are `str` everywhere.
+
+#### 2. The corner key has two different names
+
+Same values, two names, depending on which side of the project the file came
+from:
+
+- **`corner_id`** — every `tacticai_task2/*.parquet` except one
+- **`uuid`** — `corners_full_raw.parquet` (it came from `decisions.parquet`),
+  and all `data/processed/*.parquet`
+
+`corners_full_raw.parquet` is the trap: it lives in `tacticai_task2/` but uses
+the pipeline's key name. Rename on load:
+`.rename(columns={'uuid': 'corner_id'})`.
+
+#### 3. Three near-identical delivery filenames
+
+| File | Rows | Scope |
+|---|---:|---|
+| `corner_delivery.parquet` | 2,473 | 360 subset — technique / height / body part only |
+| `corner_deliver**ies**.parquet` | 2,473 | 360 subset — **plus** reflected endpoints, flight time, contact height. Built and cached by `synthetic_trajectories.py` |
+| `corner_delivery_**full**.parquet` | 41,147 | Full dataset |
+
+Singular vs plural is a one-letter difference carrying a real schema
+difference. `corner_deliveries.parquet` is the one the recommender and the
+defence/delivery analyses read.
+
+#### 4. Scope: 2,473 vs 41,178 corners
+
+Files with parallel names cover different match sets. Anything with freeze
+frames is the **2,473**-corner 360 subset; anything `*_full*` is all **41,178**
+corners with no 360 data. `defense_features.parquet` is smaller still (**2,262**)
+because it keeps only long corners. Row counts are the quickest way to tell what
+you have.
+
+#### 5. Orphaned `.csv` twins — will silently go stale
+
+`corners.csv`, `corner_players.csv` and `player_bio.csv` are byte-parallel to
+their `.parquet` versions **and no script writes them.** They were dumped by an
+older version of the extractors. They match today, but re-running
+`extract_corners.py` or `fetch_bio.py` updates only the parquet, leaving the csv
+quietly stale. **Treat the parquet as authoritative.**
+
+#### 6. A superseded script with the most authoritative-looking name
+
+`tactic_suggest.py` reads like the main entry point and is not — see the
+recommendation lineage above. `tactic_recommend.py` is the live one.
+
 ### Output collisions
 
 Three filenames are written by more than one script, across all 42 distinct
