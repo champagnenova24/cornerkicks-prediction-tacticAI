@@ -18,7 +18,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, roc_auc_score
 
-from diffusion_corners import SP, load_dataset, load_model
+from diffusion_corners import pick_device, SP, load_dataset, load_model
 from diffusion_eval import (sample_variants, to_player_frame,
                             real_player_frame, globals_for)
 from train_eval import CONFIGS
@@ -76,7 +76,7 @@ def evaluate(tag, ids, X, F, M, y, hold_idx, train_idx, device):
 
 
 def main():
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    device = pick_device()
     rows = []
     for b in BATCHES:
         tag = f"_b{b}"

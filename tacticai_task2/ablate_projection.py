@@ -24,7 +24,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, roc_auc_score
 
-from diffusion_corners import SP, load_dataset, load_model
+from diffusion_corners import pick_device, SP, load_dataset, load_model
 from diffusion_eval import (sample_variants, to_player_frame,
                             real_player_frame, globals_for)
 from train_eval import CONFIGS
@@ -84,7 +84,7 @@ def constraint_stats(dp):
 
 
 def main(device=None):
-    device = device or ('mps' if torch.backends.mps.is_available() else 'cpu')
+    device = device or (pick_device())
     ids, X, F, M, y = load_dataset()
     split = pd.read_csv(f'{SP}/diffusion_split.csv')
     hold_mask = split.split.to_numpy() == 'holdout'

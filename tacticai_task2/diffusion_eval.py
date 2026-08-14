@@ -20,7 +20,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, roc_auc_score
 
-from diffusion_corners import (SP, MAXP, OOB_MARGIN_YD, load_dataset,
+from diffusion_corners import (pick_device, SP, MAXP, OOB_MARGIN_YD, load_dataset,
                                load_model, denormalize)
 from train_eval import build_features, CONFIGS
 
@@ -107,7 +107,7 @@ def draw_corner(ax, g, title):
 
 
 def main(device=None):
-    device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
+    device = device or (pick_device())
     ids, X, F, M, y = load_dataset()
     split = pd.read_csv(f"{SP}/diffusion_split.csv")
     hold_mask = split.split.to_numpy() == "holdout"

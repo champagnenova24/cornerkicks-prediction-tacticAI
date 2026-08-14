@@ -20,7 +20,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from diffusion_corners import (SP, MAXP, T_STEPS, load_dataset, load_model,
+from diffusion_corners import (pick_device, SP, MAXP, T_STEPS, load_dataset, load_model,
                                denormalize)
 from diffusion_eval import to_player_frame, real_player_frame, globals_for
 from train_eval import CONFIGS
@@ -107,7 +107,7 @@ def draw_panel(ax, dpf, title, moved_pairs=None):
 
 
 def main():
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    device = pick_device()
     ids, X, F, M, y = load_dataset()
     split = pd.read_csv(f"{SP}/diffusion_split.csv")
     hold_idx = np.where(split.split.to_numpy() == "holdout")[0]

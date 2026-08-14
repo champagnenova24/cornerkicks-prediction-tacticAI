@@ -3,10 +3,10 @@ import numpy as np
 import pandas as pd
 import torch
 
-from diffusion_corners import SP, load_dataset
+from diffusion_corners import pick_device, SP, load_dataset
 from ablate_batch import evaluate
 
-device = "mps" if torch.backends.mps.is_available() else "cpu"
+device = pick_device()
 ids, X, F, M, y = load_dataset()
 split = pd.read_csv(f"{SP}/diffusion_split.csv")
 hold_idx = np.where(split.split.to_numpy() == "holdout")[0]

@@ -18,7 +18,7 @@ import torch
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.metrics import f1_score, roc_auc_score
 
-from diffusion_corners import SP, load_dataset, load_model, denormalize
+from diffusion_corners import pick_device, SP, load_dataset, load_model, denormalize
 from diffusion_eval import to_player_frame, real_player_frame, globals_for
 from train_eval import CONFIGS
 
@@ -60,7 +60,7 @@ def fit_eval(Xtr, ytr, Xte, yte, seed=0):
 
 
 def main():
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    device = pick_device()
     ids, X, F, M, y = load_dataset()
     split = pd.read_csv(f"{SP}/diffusion_split.csv")
     hold_idx = np.where(split.split.to_numpy() == "holdout")[0]

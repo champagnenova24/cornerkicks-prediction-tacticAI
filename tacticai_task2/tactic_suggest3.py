@@ -53,7 +53,7 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
-from diffusion_corners import SP, load_dataset, load_model, denormalize
+from diffusion_corners import pick_device, SP, load_dataset, load_model, denormalize
 from diffusion_eval import to_player_frame, real_player_frame
 from tactic_suggest import ddim_inpaint, draw_panel
 from train_eval import (build_features, CONFIGS, GCOLS_BASE, GVEL, GDELIV)
@@ -136,7 +136,7 @@ def technique_effect(dg_real, meta, y):
 
 
 def main():
-    device = 'mps' if torch.backends.mps.is_available() else 'cpu'
+    device = pick_device()
     ids, X, F, M, y = load_dataset()
     split = pd.read_csv(f'{SP}/diffusion_split.csv')
     hold_idx = np.where(split.split.to_numpy() == 'holdout')[0]

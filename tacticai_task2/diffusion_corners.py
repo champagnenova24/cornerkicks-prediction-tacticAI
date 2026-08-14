@@ -22,6 +22,22 @@ import torch
 import torch.nn as nn
 
 SP = os.path.dirname(os.path.abspath(__file__))
+
+
+def pick_device():
+    """Best available torch device: cluster GPU, Apple GPU, else CPU."""
+    if torch.cuda.is_available():
+        return "cuda"
+    return "mps" if torch.backends.mps.is_available() else "cpu"
+
+
+def _sync(device):
+    if device == "mps":
+        torch.mps.synchronize()
+    elif device == "cuda":
+        torch.cuda.synchronize()
+
+
 MAXP = 22
 CH = 4                    # generated channels: x, y, vx, vy
 FLAGS = 4                 # teammate, keeper, actor, has_vel
@@ -213,7 +229,8 @@ class Diffusion:
 
 
 # --------------------------- training ---------------------------------------
-def train(device="mps", batch=BATCH, steps=TRAIN_STEPS, tag=""):
+def train(device=None, batch=BATCH, steps=TRAIN_STEPS, tag=""):
+    device = device or pick_device()
     ids, X, F, M, y = load_dataset()
     rng = np.random.default_rng(0)
     perm = rng.permutation(len(ids))
@@ -275,13 +292,11 @@ def train(device="mps", batch=BATCH, steps=TRAIN_STEPS, tag=""):
     # ---- benchmark gate ----
     for _ in range(5):
         step_once(0)
-    if device == "mps":
-        torch.mps.synchronize()
+    _sync(device)
     t0 = time.time()
     for _ in range(30):
         step_once(0)
-    if device == "mps":
-        torch.mps.synchronize()
+    _sync(device)
     sps = 30 / (time.time() - t0)
     eta_min = steps / sps / 60
     print(f"benchmark: {sps:.1f} steps/s -> projected training "
@@ -310,8 +325,8 @@ def train(device="mps", batch=BATCH, steps=TRAIN_STEPS, tag=""):
     print(f"saved diffusion_model{tag}.pt", flush=True)
 
 
-def load_model(device="mps", tag=""):
-    dev = torch.device(device)
+def load_model(device=None, tag=""):
+    dev = torch.device(device or pick_device())
     ckpt = torch.load(f"{SP}/diffusion_model{tag}.pt", map_location=dev)
     model = Denoiser().to(dev)
     model.load_state_dict(ckpt["ema"])
@@ -326,5 +341,4 @@ if __name__ == "__main__":
     ap.add_argument("--steps", type=int, default=TRAIN_STEPS)
     ap.add_argument("--tag", type=str, default="")
     a = ap.parse_args()
-    dev = "mps" if torch.backends.mps.is_available() else "cpu"
-    train(dev, batch=a.batch, steps=a.steps, tag=a.tag)
+    train(pick_device(), batch=a.batch, steps=a.steps, tag=a.tag)

@@ -15,7 +15,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from diffusion_corners import SP, load_dataset, load_model, denormalize
+from diffusion_corners import pick_device, SP, load_dataset, load_model, denormalize
 from diffusion_eval import to_player_frame, real_player_frame, globals_for
 from train_eval import CONFIGS
 from tactic_suggest import ddim_inpaint, draw_panel
@@ -44,7 +44,7 @@ def gen_candidates(model, diff, X, F, M, idx, mode, device, seed0):
 
 
 def main():
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    device = pick_device()
     ids, X, F, M, y = load_dataset()
     split = pd.read_csv(f"{SP}/diffusion_split.csv")
     hold_idx = np.where(split.split.to_numpy() == "holdout")[0]

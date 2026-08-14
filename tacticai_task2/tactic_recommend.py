@@ -41,7 +41,7 @@ SP = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(SP), 'pipeline'))
 
 from ball_trajectory import reconstruct                      # noqa: E402
-from diffusion_corners import load_dataset, load_model, denormalize  # noqa: E402
+from diffusion_corners import pick_device, load_dataset, load_model, denormalize  # noqa: E402
 from diffusion_eval import to_player_frame, real_player_frame, globals_for  # noqa: E402
 from tactic_suggest import ddim_inpaint                      # noqa: E402
 from train_eval import CONFIGS                               # noqa: E402
@@ -101,7 +101,7 @@ def target_point_and_flight(dl):
 
 
 def main():
-    device = 'mps' if torch.backends.mps.is_available() else 'cpu'
+    device = pick_device()
     ids, X, F, M, y = load_dataset()
     split = pd.read_csv(f'{SP}/diffusion_split.csv')
     hold_idx = np.where(split.split.to_numpy() == 'holdout')[0]

@@ -11,7 +11,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from diffusion_corners import SP, load_dataset, load_model, denormalize
+from diffusion_corners import pick_device, SP, load_dataset, load_model, denormalize
 from diffusion_eval import (draw_corner, to_player_frame, real_player_frame,
                             globals_for)
 from train_eval import CONFIGS
@@ -20,7 +20,7 @@ DDIM_STEPS, W = 200, 2.0
 
 
 def main():
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    device = pick_device()
     dev = torch.device(device)
     ids, X, F, M, y = load_dataset()
     split = pd.read_csv(f"{SP}/diffusion_split.csv")
