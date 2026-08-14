@@ -68,6 +68,23 @@ Run from `pipeline/` with the project venv (`.venv/bin/python`):
 | Ball trajectory (optional) | `ball_trajectory.py` | `corner_trajectories.parquet` — reconstructed ball path per corner delivery, 60 sampled points each (`t`, `x`, `y`, `z`), joinable to `decision_points.parquet` on `uuid` |
 | Figures | `viz_corners.py <outdir>` | `corner_trajectories.png`, `corner_trajectories_by_technique.png` |
 
+### Supporting modules and analyses
+
+These write no parquet — they are libraries, one-off setup, or scripts that
+print a report to stdout. All are current.
+
+| Script | What it is |
+|---|---|
+| `common.py` | Library. Shared constants and helpers: dataset path resolution (`$OPEN_DATA` → repo root → Desktop → Downloads), the canonical frame flip, the 12×8 zone grid, the deterministic match split. Imported, not run. |
+| `build_match_index.py` | One-off setup. Builds `match_index.csv` at the root of the open-data checkout, which stage 1 expects and StatsBomb does not ship. Run once before `stage1_matches.py`. |
+| `eval_trajectories.py` | Validates the reconstructed corner trajectories by the gap/fidelity method. **Check 0 is the regression guard on the swing convention** — an inswinger must bow away from goal, and getting it backwards puts the ball out of play behind the goal line. Prints a report. |
+| `positivity.py` | Positivity / overlap audit. `E[Y | do(A=a), S=s]` is identified only where `P(A=a | S=s) > 0`; a conditional generative model will happily extrapolate into states where an action is never taken, so the violation has to be measured before any causal claim, not discovered in the output. Reports support per (state bin, action), empirical propensities, the cost of refining the action space, and the shoot-vs-pass contrast by pitch region. Prints a report. |
+| `estimand_box.py` | The `do(shoot)` vs `do(pass)` estimand restricted to the penalty area, end to end: restrict the population, build confounders from the 360 freeze frames, fit `P(shoot \| S)`, check overlap, trim to common support, then contrast naive vs IPW vs propensity-stratified effects with a match-clustered bootstrap. Follows directly from `positivity.py`, which showed the full-pitch contrast is dominated by states where nobody ever shoots. Prints a report. |
+
+The same adjustment machinery, applied to corners rather than to shoot-vs-pass,
+is `tacticai_task2/technique_effect.py` — a separate estimand, not a
+replacement.
+
 ## Ball trajectory reconstruction
 
 `ball_trajectory.py` is a standalone module — nothing in stages 1–5 depends on
