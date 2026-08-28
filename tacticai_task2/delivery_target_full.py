@@ -29,6 +29,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+import outdirs  # noqa: F401 -- creates results/ figures/ models/
 SP = os.path.dirname(os.path.abspath(__file__))
 N_BOOT = 1000
 MIN_CELL = 100
@@ -106,12 +107,12 @@ def main():
     show(t_lat, f'lateral band, {len(long):,} long corners', 'lateral')
     t_zone = table(c, 'zone')
     show(t_zone, 'full zone grid', 'zone')
-    t_zone.to_csv(f'{SP}/delivery_target_full.csv', index=False)
+    t_zone.to_csv(f'{SP}/results/delivery_target_full.csv', index=False)
 
     # ---- precision gained over the 360 subset ----
     print('\n=== precision: full set vs the 360 subset ===')
     try:
-        old = pd.read_csv(f'{SP}/delivery_target_zones.csv')
+        old = pd.read_csv(f'{SP}/results/delivery_target_zones.csv')
         ow = (old.xg_hi - old.xg_lo).median()
         nw = (t_zone.xg_hi - t_zone.xg_lo).median()
         print(f'  median 95% CI width per zone: {ow:.4f} (n=2,473) -> '
@@ -184,8 +185,8 @@ def main():
     fig.suptitle('Corner delivery value, full StatsBomb open data '
                  '(4,235 matches)', fontsize=12)
     fig.tight_layout()
-    fig.savefig(f'{SP}/delivery_target_full.png', dpi=150)
-    print('\nwrote delivery_target_full.csv, delivery_target_full.png')
+    fig.savefig(f'{SP}/figures/delivery_target_full.png', dpi=150)
+    print('\nwrote results/delivery_target_full.csv, figures/delivery_target_full.png')
 
 
 if __name__ == '__main__':

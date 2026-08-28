@@ -34,6 +34,7 @@ import os
 import numpy as np
 import pandas as pd
 
+import outdirs  # noqa: F401 -- creates results/ figures/ models/
 SP = os.path.dirname(os.path.abspath(__file__))
 PROCESSED = f'{SP}/../data/processed'
 
@@ -164,8 +165,8 @@ def main():
                     print(f'    best band when {f} is {side}: '
                           f'{sub[col].idxmax()} ({sub[col].max():.4f})')
 
-    j[['corner_id'] + FEATS].to_csv(f'{SP}/defense_features.csv', index=False)
-    print('\nwrote defense_features.parquet, defense_features.csv')
+    j[['corner_id'] + FEATS].to_csv(f'{SP}/results/defense_features.csv', index=False)
+    print('\nwrote defense_features.parquet, results/defense_features.csv')
 
 
 if __name__ == '__main__':

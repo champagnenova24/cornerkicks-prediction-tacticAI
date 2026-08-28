@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
+import outdirs  # noqa: F401 -- creates results/ figures/ models/
 SP = os.path.dirname(os.path.abspath(__file__))
 MIN_CHORD = 15.0
 TRIM = (0.05, 0.95)
@@ -99,7 +100,7 @@ def main():
               f'{"  crosses 0" if crosses else "  *"}')
         rows.append(dict(outcome=o, raw=raw, ipw=adj, ci_lo=lo, ci_hi=hi,
                          significant=not crosses))
-    pd.DataFrame(rows).to_csv(f'{SP}/technique_effect.csv', index=False)
+    pd.DataFrame(rows).to_csv(f'{SP}/results/technique_effect.csv', index=False)
 
     # ---- interaction scan -------------------------------------------------
     strata = {}
@@ -132,7 +133,7 @@ def main():
                           n_in=int((1 - s.out).sum()), d_xg=dxg, d_shot=dsh,
                           ci_lo=lo, ci_hi=hi, significant=sig))
     idf = pd.DataFrame(irows)
-    idf.to_csv(f'{SP}/technique_interactions.csv', index=False)
+    idf.to_csv(f'{SP}/results/technique_interactions.csv', index=False)
 
     n_sig = int(idf.significant.sum())
     print(f'\n  {n_sig} of {len(idf)} strata show an xG effect '
@@ -145,7 +146,7 @@ def main():
     print('  to pull is the target zone -- not the technique.')
     print('\n  Null is not equivalence: the CI above still admits an effect of')
     print('  roughly a third of the base xG rate in either direction.')
-    print('\nwrote technique_effect.csv, technique_interactions.csv')
+    print('\nwrote results/technique_effect.csv, results/technique_interactions.csv')
 
 
 if __name__ == '__main__':

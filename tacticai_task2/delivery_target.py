@@ -33,6 +33,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+import outdirs  # noqa: F401 -- creates results/ figures/ models/
 SP = __import__('os').path.dirname(__import__('os').path.abspath(__file__))
 PROCESSED = f'{SP}/../data/processed'
 N_BOOT = 2000
@@ -125,7 +126,7 @@ def main():
 
     t_zone = table(j, 'zone')
     show(t_zone, '1. value by delivery target zone')
-    t_zone.to_csv(f'{SP}/delivery_target_zones.csv', index=False)
+    t_zone.to_csv(f'{SP}/results/delivery_target_zones.csv', index=False)
 
     show(table(j[~j.short], 'lateral'), '2. lateral band only (long corners)')
     show(table(j[~j.short], 'depth'), '3. depth only (long corners)')
@@ -190,7 +191,7 @@ def main():
     fig.suptitle('Corner value by delivery target (kick mirrored to the red '
                  'star; cells with <25 corners blank)', fontsize=11)
     fig.tight_layout()
-    fig.savefig(f'{SP}/delivery_target.png', dpi=150)
+    fig.savefig(f'{SP}/figures/delivery_target.png', dpi=150)
 
     # ---- risk / reward: reaching an attacker vs paying off once you do -----
     # pass.end_location is where the ball ARRIVED, and the defence has a say in
@@ -219,10 +220,10 @@ def main():
     print('  far post beats near post on BOTH terms: it reaches an attacker')
     print('  60% vs 42% of the time for the same payoff once it does, so the')
     print('  near post is dominated. It still takes ~32% of all corners.')
-    rr.to_csv(f'{SP}/delivery_risk_reward.csv')
+    rr.to_csv(f'{SP}/results/delivery_risk_reward.csv')
 
-    print('\nwrote delivery_target_zones.csv, delivery_risk_reward.csv, '
-          'delivery_target.png')
+    print('\nwrote results/delivery_target_zones.csv, '
+          'results/delivery_risk_reward.csv, figures/delivery_target.png')
 
 
 if __name__ == '__main__':

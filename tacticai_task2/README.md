@@ -32,7 +32,7 @@
 >
 > | Script | Status | Notes |
 > |---|---|---|
-> | `train_eval.py` | **current** | Receiver + shot models, Eq. 1, 5 seeds |
+> | `train_eval.py` | **current** | Receiver + shot models, Eq. 1, 9 configs × 5 seeds. `--check-cancel` runs the softmax-cancellation guard instead of training |
 > | `diffusion_corners.py` | **current** | Set-diffusion model, training, DDIM sampler |
 > | `diffusion_eval.py` | **current** | Realism discriminators + guidance check |
 > | `quality_metrics.py`, `tstr_eval.py`, `gallery.py` | **current** | Extended metrics, TSTR, figures |
@@ -74,6 +74,44 @@
 > Device selection is centralised in `diffusion_corners.pick_device()`
 > (CUDA → MPS → CPU), so the torch scripts run on a cluster GPU or a Mac
 > unchanged. Don't reintroduce a hardcoded `"mps"`.
+>
+> ### Where results are written
+>
+> | Directory | Holds | Rule |
+> |---|---|---|
+> | `results/` | every `.csv` a script writes | tables, metrics, splits, loss curves |
+> | `figures/` | every `.png` | |
+> | `models/` | every `.pt` | diffusion checkpoints |
+> | *(script dir)* | `.py` and `.parquet` | derived data stays next to the code that reads it |
+>
+> Parquet is deliberately exempt: it is the interchange format between scripts,
+> not a result to be read by a human, and moving it would have meant rewriting
+> every load path in the project for no gain.
+>
+> **`check_paths.py` enforces this statically** — it walks the AST of every
+> script and flags any `to_csv` / `savefig` / `torch.save` whose path does not
+> resolve under one of the three directories:
+>
+> ```bash
+> python check_paths.py --strict   # exit 1 if anything is unmigrated
+> ```
+>
+> This exists because the failure it catches is silent. A write left pointing
+> at the old location still *succeeds* — it creates the file next to the
+> source, nothing raises, the script prints its summary, and the copy under
+> `results/` quietly goes stale. "Did it run?" cannot detect that. Pair it with
+> the runtime check, after running a script:
+>
+> ```bash
+> git status --porcelain tacticai_task2/ | grep -E '^\?\? tacticai_task2/[^/]+\.(csv|png|pt)$'
+> ```
+>
+> Any result file showing up as untracked in the script directory is a write
+> that was not migrated. `outdirs.py` creates the three directories on import,
+> so a fresh checkout that has deleted one does not fail after doing the work.
+>
+> Filenames in the prose below are written bare (`quality_metrics.png`); the
+> directory follows from the rule above. The tables carry the full path.
 
 Reproduction of Task 2 of *TacticAI: an AI assistant for football tactics*
 (Wang et al., Nat. Commun. 15:1906, 2024), Eq. (1):
@@ -179,53 +217,141 @@ it is struck, so `vel+delivery` is a retrospective model, not a pre-kick
 predictor. `body_part` is knowable in advance, so `vel+prekick` (foot only)
 is the leakage-safe variant. Both are reported below.
 
+> **Every number in this section was re-measured after a reproducibility fix.**
+> The train/val/test id collections were Python `set`s, and iterating a set of
+> strings depends on `PYTHONHASHSEED`, which varies per process. That order
+> reached HistGradientBoosting's `early_stopping` split — which holds rows out
+> by position — so the same seed produced a different model in every run. On
+> `vel` seed 0, `auc_direct` ranged over 0.714–0.741 across four hash seeds,
+> a spread wider than the differences between the configurations being
+> compared, while the order-independent `recv_top3` never moved. The
+> collections are now ordered arrays and four hash seeds agree to six
+> decimals. Numbers published before this fix were one draw from that lottery
+> and do not reproduce; the conclusions below survived it, with one exception
+> flagged in finding 3.
+
 | Metric                       | base (static) | + velocity    | + vel + bio   | Paper (tracking + GNN) |
 |------------------------------|---------------|---------------|---------------|------------------------|
 | Receiver top-1               | 0.20 +- 0.01  | 0.30 +- 0.02  | 0.30 +- 0.02  | n/a                    |
 | Receiver top-3               | 0.41 +- 0.01  | 0.53 +- 0.01  | 0.53 +- 0.01  | 0.782 +- 0.039         |
-| Direct shot F1               | 0.35 +- 0.03  | 0.40 +- 0.06  | 0.40 +- 0.07  | 0.52 +- 0.03           |
-| **Eq. 1 decomposed shot F1** | 0.36 +- 0.02  | 0.44 +- 0.04  | 0.43 +- 0.06  | 0.68 +- 0.04           |
+| Direct shot F1               | 0.34 +- 0.02  | 0.43 +- 0.02  | 0.43 +- 0.02  | 0.52 +- 0.03           |
+| **Eq. 1 decomposed shot F1** | 0.35 +- 0.02  | 0.44 +- 0.05  | 0.41 +- 0.10  | 0.68 +- 0.04           |
 | Always-predict-shot F1       | 0.34 +- 0.02  | 0.34 +- 0.02  | 0.34 +- 0.02  | ~0.39 (implied)        |
-| Direct shot AUC              | 0.58 +- 0.00  | 0.72 +- 0.02  | 0.71 +- 0.03  | n/a                    |
-| Eq. 1 AUC                    | 0.59 +- 0.03  | 0.74 +- 0.01  | 0.74 +- 0.01  | n/a                    |
-| Eq. 1 AUC, uniform receiver  | 0.55 +- 0.02  | 0.50 +- 0.03  | 0.49 +- 0.04  | n/a                    |
-| Given true receiver: AUC     | 0.95 +- 0.01  | 0.95 +- 0.01  | 0.96 +- 0.01  | n/a                    |
-| Given true receiver: F1      | 0.84 +- 0.03  | 0.84 +- 0.03  | 0.84 +- 0.02  | n/a                    |
+| Direct shot AUC              | 0.55 +- 0.03  | 0.72 +- 0.02  | 0.71 +- 0.01  | n/a                    |
+| Eq. 1 AUC                    | 0.58 +- 0.04  | 0.74 +- 0.01  | 0.74 +- 0.01  | n/a                    |
+| Eq. 1 AUC, uniform receiver  | 0.54 +- 0.04  | 0.49 +- 0.05  | 0.49 +- 0.03  | n/a                    |
+| Given true receiver: AUC     | 0.95 +- 0.01  | 0.95 +- 0.01  | 0.95 +- 0.01  | n/a                    |
+| Given true receiver: F1      | 0.84 +- 0.03  | 0.83 +- 0.03  | 0.84 +- 0.02  | n/a                    |
 
 (The receiver model ignores bio by construction — candidates are anonymous —
 so recv_top1/top3 are identical between `vel` and `vel+bio`. A GT-receiver
 diagnostic that additionally feeds the true receiver's own height/weight
-reaches AUC 0.954 +- 0.008 vs 0.955 without: no gain.)
+reaches AUC 0.953 +- 0.010 vs 0.953 +- 0.008 without: no gain.)
 
-Delivery configurations (5 seeds; receiver top-3 is 0.531 for every `vel*`
-config because the receiver model uses per-candidate features only):
+Delivery configurations (5 seeds). Receiver top-3 is 0.531 for every config in
+this first block, because there the receiver model uses per-candidate features
+only; the `+recv*` block below is what changes that.
 
-| config | direct F1 | direct AUC | Eq. 1 F1 | Eq. 1 AUC |
-|---|---|---|---|---|
-| vel | 0.415 | 0.718 | 0.455 | 0.746 |
-| vel+prekick (foot only) | 0.415 | 0.718 | 0.452 | 0.746 |
-| **vel+delivery** | 0.438 | **0.761** | 0.450 | 0.752 |
-| vel+bio+delivery | 0.448 | 0.757 | 0.453 | 0.752 |
+| config | recv top-3 | direct F1 | direct AUC | Eq. 1 F1 | Eq. 1 AUC |
+|---|---|---|---|---|---|
+| vel | 0.531 | 0.433 | 0.719 | 0.436 | 0.738 |
+| vel+prekick (foot only) | 0.531 | 0.433 | 0.719 | 0.437 | 0.738 |
+| **vel+delivery** | 0.531 | 0.455 | **0.757** | 0.432 | 0.750 |
+| vel+bio+delivery | 0.531 | 0.458 | 0.754 | 0.445 | 0.750 |
 
 Three findings:
 
 1. **Delivery attributes are the biggest gain since velocities -- for the
-   direct model**: AUC 0.718 -> 0.761, winning on 5/5 seeds paired
-   (+0.039, +0.062, +0.049, +0.024, +0.041). Retrospective, per the leakage
+   direct model**: AUC 0.719 -> 0.757, winning on 5/5 seeds paired
+   (+0.031, +0.041, +0.042, +0.033, +0.043). Retrospective, per the leakage
    note above.
 2. **Foot alone is worthless** (`vel+prekick` is identical to `vel` to three
    decimals). Footedness only matters through its interaction with the side
    of the pitch -- which is exactly what `technique` encodes directly, and
    what the left/right reflection erased.
 3. **The decomposition's advantage disappears**: with velocities alone Eq. 1
-   beat the direct model (0.746 vs 0.718); with delivery features the direct
-   model overtakes it (0.761 vs 0.752). The reason is architectural -- the
-   delivery features reach the *conditional* shot model but not the
-   **receiver** model, whose candidate features are purely geometric. So the
-   receiver distribution is unaware that (say) a short ground corner will be
-   played to the near man, and marginalizing over it dilutes the strong
-   global signal. Feeding globals into the receiver model (as TacticAI does
-   with its graph feature vector `g`) is the natural fix and is not yet done.
+   beat the direct model (0.738 vs 0.719, on 5/5 seeds); with delivery
+   features the direct model overtakes it (0.757 vs 0.750, Eq. 1 winning on
+   only 1/5 seeds). The reason is architectural -- the delivery features
+   reach the *conditional* shot model but not the **receiver** model, whose
+   candidate features are purely geometric, so marginalizing over an
+   uninformed receiver distribution dilutes the global signal. The next
+   section acts on that diagnosis.
+
+   *(This is the one finding the reproducibility fix moved. The pre-fix gap
+   was 0.761 vs 0.752; the direct model still wins, and now does so on 4/5
+   seeds rather than on a single unreproducible draw. The direction held, the
+   margin was never as precise as three decimals implied.)*
+
+### Globals in the receiver model (TacticAI's `g`)
+
+Finding 3 says the receiver model cannot see what the conditional model can.
+`add_globals` fixes that by broadcasting the per-corner global vector onto
+every candidate row — the analog of the graph feature vector `g` that
+TacticAI's receiver head reads alongside its node features.
+
+**How it can work at all.** The globals are constant across a corner's
+candidates, so under a *linear* scorer they add the same term to every score
+and cancel exactly in the softmax: appending them would be a no-op, and the
+gradient on their weights is identically zero. They do work only through the
+tanh hidden layer, where they shift the pre-activations and change how the
+per-candidate geometry is weighed. Globals modulate the reading of the
+geometry; they never vote for a candidate on their own.
+`train_eval.py --check-cancel` asserts both halves of that (linear difference
+2.6e-15, gradient 1.6e-17, hidden-layer difference 2.4e-01) so the mechanism
+cannot silently disappear if someone sets `hidden=0`.
+
+| config | globals → receiver | recv top-1 | recv top-3 | Eq. 1 F1 | Eq. 1 AUC |
+|---|---|---|---|---|---|
+| vel | none | 0.297 | 0.531 | 0.436 | 0.738 |
+| vel+recvg | all 41 | 0.248 | 0.470 | 0.424 | 0.705 |
+| vel+delivery | none | 0.297 | 0.531 | 0.432 | 0.750 |
+| vel+delivery+recvg | all 49 | 0.293 | 0.519 | 0.431 | 0.736 |
+| **vel+delivery+recvd** | **delivery only (8)** | **0.335** | **0.575** | **0.452** | **0.761** |
+
+**The whole global vector hurts; the delivery block alone helps.** Handing the
+receiver model all 41 base+velocity globals costs it 6 points of top-3
+(0.531 → 0.470) and drags Eq. 1 AUC down to 0.705 — worse than doing nothing.
+Those globals are mostly pooled restatements of the candidate features the
+model already has (`n_att`, `mean_att_dg`, the three-nearest-attacker block),
+so they roughly double the input width of a 16-unit layer trained on ~1,700
+corners while adding no within-corner information. Restricted to the eight
+delivery one-hots — genuinely new information, describing the *kick* rather
+than any player — the same mechanism gains **+0.044 top-3 on 5/5 seeds**
+(+0.041, +0.050, +0.054, +0.028, +0.046) and **+0.011 Eq. 1 AUC on 4/5**.
+
+**What it does and does not settle.** `vel+delivery+recvd` has the best Eq. 1
+AUC in the project (0.761) and erases the deficit to the direct model — but
+erases is the right verb: Eq. 1 goes from −0.008 (winning 1/5 seeds) to +0.004
+(2/5). The two are now indistinguishable, which is not the same as the
+decomposition winning. On five seeds this margin cannot be called either way.
+
+**Which attribute does the work — and a prediction that failed.** The obvious
+guess is short corners: a ground pass goes to the near man, and a receiver
+model that cannot see `height` would not know. That is wrong. Splitting the
+holdout, Ground Pass corners were already at 0.952 top-3 before the fix —
+geometry alone nearly saturates them, because the near man is also the
+candidate nearest the corner arc. The gain is on *lofted* deliveries
+(+0.045) rather than short ones (+0.032). Decomposing the block:
+
+| globals given to the receiver model | cols | top-3 | vs none |
+|---|---:|---:|---:|
+| none | 0 | 0.531 | — |
+| **technique only** | 4 | **0.573** | **+0.041** |
+| height only | 3 | 0.546 | +0.014 |
+| foot only | 1 | 0.529 | −0.002 |
+| all delivery | 8 | 0.575 | +0.044 |
+
+**Technique is essentially the whole effect.** Inswing versus outswing decides
+which part of the box the ball is travelling toward, and therefore which
+attackers are plausible receivers at all — information no snapshot of player
+positions contains. Note that `foot only` adds nothing here either, the exact
+echo of finding 2 on the shot side: footedness matters only through the swing
+it produces, and `technique` already encodes that directly.
+
+The leakage boundary applies unchanged — `technique` is known only after the
+ball is struck, so `+recvd` is a retrospective model. There is no pre-kick
+version of this gain, since foot, the one pre-kick attribute, is worth zero.
 
 Takeaways:
 
@@ -233,10 +359,12 @@ Takeaways:
    receiver, the shot outcome is highly predictable (AUC 0.95) — receiver
    identity carries most of the signal, which is why Eq. 1 helps.
 2. The decomposition's *realized* advantage scales with receiver-predictor
-   quality: with static-only features the gain over the direct model is ~0.01
-   F1; with velocities the receiver model improves (top-3 0.41 -> 0.53) and
-   the Eq. 1 gain widens (F1 +0.03, AUC +0.02, both consistent across seeds).
-3. Velocities are the single biggest data upgrade: direct AUC 0.57 -> 0.72,
+   quality, and shows up in ranking rather than in thresholded F1: over the
+   direct model, Eq. 1 gains +0.025 AUC with static features (on 3/5 seeds)
+   and +0.019 with velocities (on 5/5), while the F1 gap stays inside noise
+   (+0.005 and +0.003). Ranking is the honest place to read it — F1 depends
+   on a tuned threshold and its seed-to-seed spread (±0.05) swamps the effect.
+3. Velocities are the single biggest data upgrade: direct AUC 0.55 -> 0.72,
    Eq. 1 AUC 0.58 -> 0.74. This mirrors the paper's emphasis on movement:
    who is running where at the kick is most of the tactical signal
    (with the flight-window caveat above).
@@ -248,10 +376,17 @@ Takeaways:
    anonymity forces bio down to team aggregates that are near-constant per
    team; the paper could attach height/weight to every tracked player and
    still treated them as a minor feature.
-6. Remaining gap to the paper: pre-kick velocities vs flight-window
+6. Giving the receiver model the delivery attributes is the largest gain it
+   has had since velocities: top-3 0.531 -> 0.575 on 5/5 seeds, and it is
+   what closes Eq. 1's deficit to the direct model. But feeding it the *whole*
+   global vector makes it worse — the useful part is the ~8 columns that
+   describe the kick rather than restating the players.
+7. Remaining gap to the paper: pre-kick velocities vs flight-window
    velocities, full 22-player tracking vs ~75% visibility, exact receiver
    labels vs nearest-player matching, 7,176 vs 2,425 corners, geometric deep
-   learning vs shallow models, per-player height/weight vs aggregates.
+   learning vs shallow models, per-player height/weight vs aggregates. Note
+   receiver top-3 is now 0.575 against the paper's 0.782 — the remaining gap
+   is narrower than it was, and is where the decomposition's value lives.
 
 ## Synthetic corner generation with diffusion (paper Task 3 analog)
 
@@ -975,7 +1110,7 @@ noise band observed across seeds elsewhere in this project):
   not the lever that closes the realism gap (consistent with the earlier
   finding that 2x model / 2x steps did not help either); the residual
   goalmouth under-densification survives every setting tested.
-- Checkpoints for all four runs are kept as `diffusion_model_b{64,128,256,512}.pt`
+- Checkpoints for all four runs are kept as `models/diffusion_model_b{64,128,256,512}.pt`
   (loadable via `load_model(tag="_b128")` etc.).
 
 ### Pitch-projection ablation (`ablate_projection.py` -> `ablation_projection.csv`)
@@ -1126,6 +1261,8 @@ overturned, is reproducible from the script that produced it. Status meanings:
 | File | Status | What it is |
 |---|---|---|
 | `paths.py` | current, library | Resolves the StatsBomb checkout (`$OPEN_DATA` → repo root → Desktop → Downloads). Import this rather than hardcoding a data path. |
+| `outdirs.py` | current, library | Creates `results/` `figures/` `models/` on import. Deliberately separate from `paths.py`, whose import resolves the StatsBomb checkout and exits if it is missing — the torch-only scripts must not inherit that dependency just to get a directory. |
+| `check_paths.py` | current, check | Static guard on the layout: walks every script's AST and flags a write that does not land under `results/` `figures/` `models/`. `--strict` exits 1. Catches the silent failure — an unmigrated write still succeeds, it just leaves the committed copy stale. |
 | `extract_corners.py` | current | Builds the Task-2 corner dataset from raw events: labels, receiver matching, freeze-frame normalisation, velocity estimation from consecutive frames. → `corners.parquet`, `corner_players.parquet` |
 | `onpitch.py` | current | Reconstructs the on-pitch XI and keeper at every corner from Starting XI / Substitution / Tactical Shift / red cards. → `onpitch.parquet` |
 | `fetch_bio.py` | current | Wikidata height (P2048) and weight (P2067) for all 4,079 players. ~30 min, hits the API. → `player_bio.parquet` |
@@ -1146,26 +1283,26 @@ on them can condition on the defensive setup.
 
 | File | Status | What it is |
 |---|---|---|
-| `train_eval.py` | current | Features, receiver model, both shot models, Eq. 1, 5-seed evaluation of every configuration. Defines `CONFIGS` and `build_features`, which most later scripts import. → `results_seeds.csv`, `results_summary.csv` |
+| `train_eval.py` | current | Features, receiver model, both shot models, Eq. 1, 5-seed evaluation of all 9 configurations. Defines `CONFIGS` and `build_features`, which most later scripts import — note `CONFIGS` values are 4-tuples since the `g` fix; downstream scripts read `[1]` (the shot model's globals) and are unaffected. `add_globals` broadcasts globals into the receiver model; `--check-cancel` proves they can only act through the tanh layer. → `results/results_seeds.csv`, `results/results_summary.csv` |
 
 ### 4. Diffusion generator
 
 | File | Status | What it is |
 |---|---|---|
-| `diffusion_corners.py` | current | The set-diffusion model: data prep, permutation-equivariant denoiser, training with the laptop time-budget gate, DDIM sampler with optional pitch projection. Also `pick_device()` (CUDA → MPS → CPU) — don't reintroduce a hardcoded device. → `diffusion_model.pt`, `diffusion_split.csv`, `diffusion_loss.csv` |
-| `diffusion_eval.py` | current | Sampling, discriminator realism test, guidance check, distribution table, figure. → `synthetic_corners.parquet`, `diffusion_eval.csv`, `diffusion_distributions.csv`, `real_vs_synthetic.png` |
-| `quality_metrics.py` | current | Extended generative metrics: MMD², 1-NN, precision/recall/density/coverage, constraint violations. → `quality_metrics.csv`, `quality_pcf.csv`, `quality_metrics.png` |
-| `tstr_eval.py` | current | Train-on-synthetic, test-on-real for the shot classifier. → `tstr_results.csv` |
-| `gallery.py` | current | Real vs shot=0/shot=1-guided generations per template, plus a sample-diversity row. → `synthetic_gallery.png` |
-| `synthetic_trajectories.py` | current | Reconstructs ball paths for synthetic corners (importing the pipeline's `ball_trajectory`) and measures ball-consistency: does a generated setup converge on where the ball actually arrives. → `synthetic_corner_trajectories.parquet`, `ball_consistency.csv`, `synthetic_trajectories.png` |
+| `diffusion_corners.py` | current | The set-diffusion model: data prep, permutation-equivariant denoiser, training with the laptop time-budget gate, DDIM sampler with optional pitch projection. Also `pick_device()` (CUDA → MPS → CPU) — don't reintroduce a hardcoded device. → `models/diffusion_model.pt`, `results/diffusion_split.csv`, `results/diffusion_loss.csv` |
+| `diffusion_eval.py` | current | Sampling, discriminator realism test, guidance check, distribution table, figure. → `synthetic_corners.parquet`, `results/diffusion_eval.csv`, `results/diffusion_distributions.csv`, `figures/real_vs_synthetic.png` |
+| `quality_metrics.py` | current | Extended generative metrics: MMD², 1-NN, precision/recall/density/coverage, constraint violations. → `results/quality_metrics.csv`, `results/quality_pcf.csv`, `figures/quality_metrics.png` |
+| `tstr_eval.py` | current | Train-on-synthetic, test-on-real for the shot classifier. → `results/tstr_results.csv` |
+| `gallery.py` | current | Real vs shot=0/shot=1-guided generations per template, plus a sample-diversity row. → `figures/synthetic_gallery.png` |
+| `synthetic_trajectories.py` | current | Reconstructs ball paths for synthetic corners (importing the pipeline's `ball_trajectory`) and measures ball-consistency: does a generated setup converge on where the ball actually arrives. → `synthetic_corner_trajectories.parquet`, `results/ball_consistency.csv`, `figures/synthetic_trajectories.png` |
 
 ### 5. Ablations (both negative results)
 
 | File | Status | What it is |
 |---|---|---|
-| `ablate_batch.py` | current | Batch-size ablation, 4 arms at a fixed 30k-step budget. → `ablation_batch.csv`, `diffusion_model_b{64,128,256,512}.pt` |
-| `finish_ablation.py` | helper | One-off: evaluates the batch-512 checkpoint and merges it into `ablation_batch.csv`. Not an entry point — it runs at import. |
-| `ablate_projection.py` | current | Pitch-projection A/B: one checkpoint, one set of sampling seeds, three constraint arms, 10 discriminator splits each. Shows the constraint buys no realism. → `ablation_projection.csv` |
+| `ablate_batch.py` | current | Batch-size ablation, 4 arms at a fixed 30k-step budget. → `results/ablation_batch.csv`, `models/diffusion_model_b{64,128,256,512}.pt` |
+| `finish_ablation.py` | helper | One-off: evaluates the batch-512 checkpoint and merges it into `results/ablation_batch.csv`. Not an entry point — it runs at import. |
+| `ablate_projection.py` | current | Pitch-projection A/B: one checkpoint, one set of sampling seeds, three constraint arms, 10 discriminator splits each. Shows the constraint buys no realism. → `results/ablation_projection.csv` |
 
 ### 6. Recommendation — read this lineage carefully
 
@@ -1175,23 +1312,46 @@ Four iterations of the same idea. **Only the last is live.**
 |---|---|---|
 | `tactic_suggest.py` | **superseded, live import** | v1. Single guided draw, defenders pinned. Its best-of-6 numbers carry the selection bias, but `tactic_suggest2/3` and `tactic_recommend` all import `ddim_inpaint` and `draw_panel` from it. **Do not delete.** → `tactic_suggestions.csv/.png` |
 | `tactic_suggest2.py` | superseded | v2. Best-of-k candidate selection — the mechanism that turned out to be the bias. Overwrites `tactic_suggestions.csv/.png`, so whichever of v1/v2 ran last owns those files. → `tactic_suggestions.csv/.png`, `tactic_best_players.parquet` |
-| `tactic_suggest3.py` | superseded | v3. Joint shape + delivery, conditioned on the defence. Wrong on two counts: it maximised P(shot) (which moves attempts but not xG) and it selected and scored with one model. → `tactic_joint.csv`, `tactic_joint.png` |
-| **`tactic_recommend.py`** | **CURRENT** | The live recommender. xG-based rather than P(shot); cross-fitted selector/evaluator so the reported gain is unbiased; reconstructed ball path attached to every recommendation. → `tactic_recommendation.csv`, `tactic_recommendation.png`, `tactic_recommendation_gallery.png` |
+| `tactic_suggest3.py` | superseded | v3. Joint shape + delivery, conditioned on the defence. Wrong on two counts: it maximised P(shot) (which moves attempts but not xG) and it selected and scored with one model. → `results/tactic_joint.csv`, `figures/tactic_joint.png` |
+| **`tactic_recommend.py`** | **CURRENT** | The live recommender. xG-based rather than P(shot); cross-fitted selector/evaluator so the reported gain is unbiased; reconstructed ball path attached to every recommendation. → `results/tactic_recommendation.csv`, `figures/tactic_recommendation.png`, `figures/tactic_recommendation_gallery.png` |
 
 ### 7. Delivery and defence analysis
 
 | File | Status | What it is |
 |---|---|---|
-| **`delivery_target_full.py`** | **current** | Authoritative zone analysis on all 41,178 corners. Supersedes the zone ranking in `delivery_target.py`. → `delivery_target_full.csv`, `delivery_target_full.png` |
-| `delivery_target.py` | **partly current** | Zone ranking superseded by the full set — but its defence-conditional splits and the retention × payoff decomposition need freeze frames and exist nowhere else. → `delivery_target_zones.csv`, `delivery_risk_reward.csv`, `delivery_target.png` |
+| **`delivery_target_full.py`** | **current** | Authoritative zone analysis on all 41,178 corners. Supersedes the zone ranking in `delivery_target.py`. → `results/delivery_target_full.csv`, `figures/delivery_target_full.png` |
+| `delivery_target.py` | **partly current** | Zone ranking superseded by the full set — but its defence-conditional splits and the retention × payoff decomposition need freeze frames and exist nowhere else. → `results/delivery_target_zones.csv`, `results/delivery_risk_reward.csv`, `figures/delivery_target.png` |
 | `defense_features.py` | current | Defensive descriptors from the freeze frame: six-yard congestion, defensive line, post coverage, keeper depth, and a zonal-vs-man marking proxy (mean defender→nearest-attacker distance). → `defense_features.parquet/.csv` |
-| `technique_effect.py` | current | Inswinging vs outswinging on attempts / xG / goals: raw, IPW-adjusted, cluster-bootstrapped, plus a nine-stratum interaction scan. The evidence the delivery recommendation rests on. → `technique_effect.csv`, `technique_interactions.csv` |
+| `technique_effect.py` | current | Inswinging vs outswinging on attempts / xG / goals: raw, IPW-adjusted, cluster-bootstrapped, plus a nine-stratum interaction scan. The evidence the delivery recommendation rests on. → `results/technique_effect.csv`, `results/technique_interactions.csv` |
 
 ### Things that can mislead you
 
 A full audit of every file in the project for names, keys and types that look
-interchangeable but are not. Six categories, in rough order of how much damage
-they can do.
+interchangeable but are not, plus one bug that silently changed published
+numbers. Seven categories, in rough order of how much damage they can do —
+`#0` first because it is the only one that has already caused a wrong number
+to be written down.
+
+#### 0. Task 2 numbers published before 2026-08-28 do not reproduce — fixed
+
+`train_eval.py` split corners into `set`s of string ids and then *iterated*
+them to build the feature matrices. Set iteration order over Python strings
+depends on `PYTHONHASHSEED`, which is randomised per process, so row order
+changed between runs; `HistGradientBoostingClassifier(early_stopping=True)`
+holds out its validation rows **by position**, so the same seed trained a
+different model each time. `auc_direct` on `vel` seed 0 ranged over
+0.714–0.741 across four hash seeds — wider than the gaps between the
+configurations being compared — while `recv_top3`, which does not depend on
+row order, was stable to four decimals. That stability is what made it
+invisible: the receiver metrics agreed run to run, so the shot metrics looked
+trustworthy too.
+
+Fixed by keeping the three collections as ordered arrays (they were only ever
+iterated; `valid_recv` is still a set, since it is used only for membership).
+Four hash seeds now agree to six decimals. **If you are comparing against
+numbers from an older revision of this file, they are one draw from that
+lottery — re-run rather than reconciling.** All Task 2 tables above have been
+re-measured; the conclusions held, with the margin in finding 3 tightened.
 
 #### 1. `match_id` dtype is inconsistent — silent empty joins
 
@@ -1248,6 +1408,13 @@ older version of the extractors. They match today, but re-running
 `extract_corners.py` or `fetch_bio.py` updates only the parquet, leaving the csv
 quietly stale. **Treat the parquet as authoritative.**
 
+The reorg makes these easier to spot rather than harder: they are now the
+**only** `.csv` files left in the script directory, since everything a script
+writes moved to `results/`. That is also why they were not moved — putting them
+under `results/` would assert they are generated output, which is exactly the
+false claim that makes them dangerous. A `.csv` beside the `.py` files is an
+orphan by construction.
+
 #### 6. A superseded script with the most authoritative-looking name
 
 `tactic_suggest.py` reads like the main entry point and is not — see the
@@ -1262,9 +1429,9 @@ newer — which would silently replace current results with superseded ones.
 
 | Filename | Written by | Currently on disk from |
 |---|---|---|
-| `tactic_suggestions.csv` | `tactic_suggest.py`, `tactic_suggest2.py` | **v2** — header is `corner_id, shot_real, p_original, p_attack_1, p_attack_bestk, p_defense_1, p_defense_bestk`; the `_bestk` columns are v2's, and v1 writes `p_attack_adj` / `p_defense_adj` instead |
-| `tactic_suggestions.png` | `tactic_suggest.py`, `tactic_suggest2.py` | **v2** — same mtime as the csv above |
-| `ablation_batch.csv` | `ablate_batch.py`, `finish_ablation.py` | **`finish_ablation.py`** — it appended the batch-512 row to the three `ablate_batch.py` had written, so the file is the union and neither script alone reproduces it |
+| `results/tactic_suggestions.csv` | `tactic_suggest.py`, `tactic_suggest2.py` | **v2** — header is `corner_id, shot_real, p_original, p_attack_1, p_attack_bestk, p_defense_1, p_defense_bestk`; the `_bestk` columns are v2's, and v1 writes `p_attack_adj` / `p_defense_adj` instead |
+| `figures/tactic_suggestions.png` | `tactic_suggest.py`, `tactic_suggest2.py` | **v2** — same mtime as the csv above |
+| `results/ablation_batch.csv` | `ablate_batch.py`, `finish_ablation.py` | **`finish_ablation.py`** — it appended the batch-512 row to the three `ablate_batch.py` had written, so the file is the union and neither script alone reproduces it |
 
 Ownership is decidable from the file contents in each case, so nothing on disk
 is actually ambiguous — but running `tactic_suggest.py` now would overwrite v2's
@@ -1293,12 +1460,12 @@ iterations do not collide with anything.
 | `corner_deliveries.parquet` | Subset corners with reflected endpoints, flight time and contact height, ready for trajectory reconstruction |
 | `onpitch.parquet` | Per corner: attacking/defending player-id lists and GK ids |
 | `player_bio.parquet` / `.csv` | Per player: name, Wikidata QID, height_cm, weight_kg (unit-cleaned) |
-| `diffusion_model.pt` | Trained EMA checkpoint (1.09M params, 60k steps) |
-| `diffusion_model_b{64,128,256,512}.pt` | Batch-ablation checkpoints; load via `load_model(tag="_b128")` |
-| `diffusion_split.csv` | Train/holdout template split used by every diffusion experiment |
-| `diffusion_loss.csv`, `diffusion_loss_b*.csv` | Training loss curves |
+| `models/diffusion_model.pt` | Trained EMA checkpoint (1.09M params, 60k steps) |
+| `models/diffusion_model_b{64,128,256,512}.pt` | Batch-ablation checkpoints; load via `load_model(tag="_b128")` |
+| `results/diffusion_split.csv` | Train/holdout template split used by every diffusion experiment |
+| `results/diffusion_loss.csv`, `results/diffusion_loss_b*.csv` | Training loss curves |
 | `synthetic_corners.parquet` | Generated corners, 3 variants per held-out template (real label, shot=1, shot=0) |
-| `results_seeds.csv` / `results_summary.csv` | Per-seed and aggregated Task 2 metrics per configuration |
+| `results/results_seeds.csv` / `results/results_summary.csv` | Per-seed and aggregated Task 2 metrics per configuration |
 | `tactic_best_players.parquet` | Chosen player coordinates from the v2 best-of-k loop |
 ## Reproduce
 
@@ -1307,10 +1474,17 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python extract_corners.py   # ~2 min, needs ~/Desktop/open-data-master
 .venv/bin/python onpitch.py
 .venv/bin/python fetch_bio.py         # ~30 min, hits the Wikidata API
-.venv/bin/python train_eval.py        # runs base / vel (/ vel+bio if bio exists)
+.venv/bin/python train_eval.py        # 9 configs x 5 seeds, ~35 min
 .venv/bin/python diffusion_corners.py # train diffusion (needs torch; ~45 min on M3 Pro)
 .venv/bin/python diffusion_eval.py    # sample + evaluate + figure
 ```
 
 (`requirements.txt` covers the tabular pipeline; the diffusion scripts
 additionally need `torch` and `matplotlib`.)
+
+Two checks worth running after any change to paths or to the receiver model:
+
+```bash
+.venv/bin/python check_paths.py --strict      # no write escapes results/figures/models
+.venv/bin/python train_eval.py --check-cancel # globals reach the receiver only via tanh
+```

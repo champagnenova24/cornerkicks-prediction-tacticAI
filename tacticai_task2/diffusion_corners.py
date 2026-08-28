@@ -21,6 +21,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
+import outdirs  # noqa: F401 -- creates results/ figures/ models/
 SP = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -239,7 +240,7 @@ def train(device=None, batch=BATCH, steps=TRAIN_STEPS, tag=""):
     split = pd.DataFrame({"corner_id": ids,
                           "split": ["train"] * len(ids)})
     split.loc[hold_idx, "split"] = "holdout"
-    split.to_csv(f"{SP}/diffusion_split.csv", index=False)
+    split.to_csv(f"{SP}/results/diffusion_split.csv", index=False)
 
     dev = torch.device(device)
     Xt = torch.tensor(X[train_idx]).to(dev)
@@ -319,15 +320,15 @@ def train(device=None, batch=BATCH, steps=TRAIN_STEPS, tag=""):
 
     torch.save({"ema": ema, "model": model.state_dict(),
                 "config": dict(d=160, layers=5, heads=4, T=T_STEPS)},
-               f"{SP}/diffusion_model{tag}.pt")
+               f"{SP}/models/diffusion_model{tag}.pt")
     pd.DataFrame({"step": range(1, steps + 1), "loss": losses}) \
-        .iloc[::50].to_csv(f"{SP}/diffusion_loss{tag}.csv", index=False)
-    print(f"saved diffusion_model{tag}.pt", flush=True)
+        .iloc[::50].to_csv(f"{SP}/results/diffusion_loss{tag}.csv", index=False)
+    print(f"saved models/diffusion_model{tag}.pt", flush=True)
 
 
 def load_model(device=None, tag=""):
     dev = torch.device(device or pick_device())
-    ckpt = torch.load(f"{SP}/diffusion_model{tag}.pt", map_location=dev)
+    ckpt = torch.load(f"{SP}/models/diffusion_model{tag}.pt", map_location=dev)
     model = Denoiser().to(dev)
     model.load_state_dict(ckpt["ema"])
     model.eval()

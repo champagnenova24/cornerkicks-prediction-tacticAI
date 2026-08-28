@@ -109,7 +109,7 @@ def draw_panel(ax, dpf, title, moved_pairs=None):
 def main():
     device = pick_device()
     ids, X, F, M, y = load_dataset()
-    split = pd.read_csv(f"{SP}/diffusion_split.csv")
+    split = pd.read_csv(f"{SP}/results/diffusion_split.csv")
     hold_idx = np.where(split.split.to_numpy() == "holdout")[0]
     train_idx = np.where(split.split.to_numpy() == "train")[0]
     model, diff = load_model(device)
@@ -154,7 +154,7 @@ def main():
     df = pd.DataFrame(rows).dropna()
     df["att_gain"] = df.p_attack_adj - df.p_original
     df["def_gain"] = df.p_original - df.p_defense_adj
-    df.to_csv(f"{SP}/tactic_suggestions.csv", index=False)
+    df.to_csv(f"{SP}/results/tactic_suggestions.csv", index=False)
 
     print("\n=== aggregate effects (independent classifier) ===", flush=True)
     print(f"ATTACK  (shot=1 target): mean P {df.p_original.mean():.3f} -> "
@@ -203,8 +203,8 @@ def main():
         "row 1: high-effect example, row 2: median example; "
         "P = independent classifier shot probability")
     fig.tight_layout()
-    fig.savefig(f"{SP}/tactic_suggestions.png", dpi=150)
-    print("saved tactic_suggestions.png", flush=True)
+    fig.savefig(f"{SP}/figures/tactic_suggestions.png", dpi=150)
+    print("saved figures/tactic_suggestions.png", flush=True)
 
 
 if __name__ == "__main__":

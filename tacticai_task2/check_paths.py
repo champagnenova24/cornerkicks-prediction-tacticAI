@@ -20,10 +20,16 @@ the bottom of this docstring.
 Runtime check, which catches what static analysis cannot (paths built at run
 time, or by libraries):
 
-    git status --porcelain tacticai_task2/ | grep -E '\\.(csv|png|pt|parquet)$'
+    git status --porcelain tacticai_task2/ \\
+        | grep -E '^\\?\\? tacticai_task2/[^/]+\\.(csv|png|pt)$'
 
-Run that AFTER executing a script on the reorg branch. Any result file showing
-up as untracked in the script directory is a write that was not migrated.
+Run that AFTER executing a script. Any result file showing up as untracked in
+the script directory is a write that was not migrated. Two details matter: the
+`^??` anchor, without which the pattern also matches the `R  old -> new` rename
+lines the migration itself produces (findings that are not findings), and the
+`[^/]+`, which keeps a correctly-placed write under results/ from matching.
+`parquet` is not in the list: derived data deliberately stays in the script
+directory, so a parquet there is expected, not a miss.
 """
 import ast
 import os

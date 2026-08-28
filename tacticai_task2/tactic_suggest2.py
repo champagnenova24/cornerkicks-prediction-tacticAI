@@ -46,7 +46,7 @@ def gen_candidates(model, diff, X, F, M, idx, mode, device, seed0):
 def main():
     device = pick_device()
     ids, X, F, M, y = load_dataset()
-    split = pd.read_csv(f"{SP}/diffusion_split.csv")
+    split = pd.read_csv(f"{SP}/results/diffusion_split.csv")
     hold_idx = np.where(split.split.to_numpy() == "holdout")[0]
     train_idx = np.where(split.split.to_numpy() == "train")[0]
     model, diff = load_model(device)
@@ -102,7 +102,7 @@ def main():
             p_defense_1=best["defense"]["p_first"].get(cid, np.nan),
             p_defense_bestk=best["defense"]["p"].get(cid, np.nan)))
     df = pd.DataFrame(rows).dropna()
-    df.to_csv(f"{SP}/tactic_suggestions.csv", index=False)
+    df.to_csv(f"{SP}/results/tactic_suggestions.csv", index=False)
 
     m = df.mean(numeric_only=True)
     print("\n=== aggregate P(shot), independent classifier ===", flush=True)
@@ -156,11 +156,12 @@ def main():
         "gray circles/lines = original -> suggested position;\n"
         "row 1: high-effect example, row 2: median example" % K)
     fig.tight_layout()
-    fig.savefig(f"{SP}/tactic_suggestions.png", dpi=150)
+    fig.savefig(f"{SP}/figures/tactic_suggestions.png", dpi=150)
     dp_best = pd.concat([dp_att.assign(mode="attack"),
                          dp_def.assign(mode="defense")])
     dp_best.to_parquet(f"{SP}/tactic_best_players.parquet")
-    print("saved tactic_suggestions.png / .csv / tactic_best_players.parquet",
+    print("saved figures/tactic_suggestions.png / results/tactic_suggestions.csv"
+          " / tactic_best_players.parquet",
           flush=True)
 
 

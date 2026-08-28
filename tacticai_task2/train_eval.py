@@ -14,11 +14,21 @@ Feature configurations:
            individual bio, so per-player bio only enters the ground-truth
            receiver diagnostic)
 
+The `*+recvg` / `*+recvd` configs additionally broadcast the per-corner global
+vector onto every candidate row of the RECEIVER model -- the analog of
+TacticAI's graph feature vector g. Without them the receiver model scores
+candidates on per-player geometry alone, so it cannot know that (say) a short
+ground corner goes to the near man, and marginalizing over it dilutes the
+global signal the conditional model has. See `add_globals`.
+
 Protocol mirrors the paper: random 80:20 corner split, F1 on the shot class,
 mean +- std over 5 seeds.
 """
+import sys
+
 import numpy as np
 import pandas as pd
+import outdirs  # noqa: F401 -- creates results/ figures/ models/
 from paths import PROCESSED
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
@@ -54,13 +64,24 @@ GDELIV = ["tech_in", "tech_out", "tech_straight", "tech_missing",
           "h_high", "h_ground", "h_low", "foot_right"]
 GPREKICK = ["foot_right"]
 
+# (candidate feats, global feats for the shot model, receiver bio diagnostic,
+#  global feats broadcast into the RECEIVER model).
+# The fourth element is empty for every config that predates the `g` fix, so
+# those reproduce exactly. Downstream scripts read CONFIGS[name][1] only.
 CONFIGS = {
-    "base": (CAND_BASE, GCOLS_BASE, False),
-    "vel": (CAND_VEL, GCOLS_BASE + GVEL, False),
-    "vel+bio": (CAND_VEL, GCOLS_BASE + GVEL + GBIO, True),
-    "vel+prekick": (CAND_VEL, GCOLS_BASE + GVEL + GPREKICK, False),
-    "vel+delivery": (CAND_VEL, GCOLS_BASE + GVEL + GDELIV, False),
-    "vel+bio+delivery": (CAND_VEL, GCOLS_BASE + GVEL + GBIO + GDELIV, True),
+    "base": (CAND_BASE, GCOLS_BASE, False, []),
+    "vel": (CAND_VEL, GCOLS_BASE + GVEL, False, []),
+    "vel+bio": (CAND_VEL, GCOLS_BASE + GVEL + GBIO, True, []),
+    "vel+prekick": (CAND_VEL, GCOLS_BASE + GVEL + GPREKICK, False, []),
+    "vel+delivery": (CAND_VEL, GCOLS_BASE + GVEL + GDELIV, False, []),
+    "vel+bio+delivery": (CAND_VEL, GCOLS_BASE + GVEL + GBIO + GDELIV, True, []),
+    # ---- receiver model sees the global vector too (TacticAI's g) ----
+    # recvg = the whole global vector; recvd = the delivery block only, which
+    # isolates whether the gain is delivery-specific or globals in general.
+    "vel+recvg": (CAND_VEL, GCOLS_BASE + GVEL, False, GCOLS_BASE + GVEL),
+    "vel+delivery+recvd": (CAND_VEL, GCOLS_BASE + GVEL + GDELIV, False, GDELIV),
+    "vel+delivery+recvg": (CAND_VEL, GCOLS_BASE + GVEL + GDELIV, False,
+                           GCOLS_BASE + GVEL + GDELIV),
 }
 
 
@@ -317,28 +338,67 @@ def make_groups(dp_f, corner_ids, cand_feats):
     return out, order
 
 
+def add_globals(groups, order, dg_global, recv_gcols):
+    """Broadcast each corner's global vector onto all of its candidate rows.
+
+    TacticAI's receiver head sees the graph feature vector g alongside the
+    per-player node features; ours saw per-player geometry only. Appending the
+    globals here is that fix.
+
+    The globals are constant across the candidates of a corner, so under a
+    LINEAR scorer they add the same term to every score and cancel exactly in
+    the softmax -- appending them would be a no-op. They do work only through
+    the tanh hidden layer, where they shift the pre-activations and so change
+    how the per-candidate features are weighed. That is the intended
+    mechanism, not an accident of the architecture: globals modulate the
+    reading of the geometry, they do not vote on a candidate by themselves.
+    `--check-cancel` asserts the linear no-op as a regression guard.
+
+    Returns a new group list; `groups` is left untouched so the conditional
+    shot model, which concatenates the globals itself, keeps its own layout.
+    """
+    if not recv_gcols:
+        return groups
+    out = []
+    for (feats, ridx), cid in zip(groups, order):
+        gvec = dg_global.loc[cid, recv_gcols].to_numpy(dtype=float)
+        out.append((np.hstack([feats, np.tile(gvec, (len(feats), 1))]), ridx))
+    return out
+
+
 def run_seed(seed, config, dc, dp_f, dg_global, results):
-    cand_feats, gcols, use_recv_bio = CONFIGS[config]
+    cand_feats, gcols, use_recv_bio, recv_gcols = CONFIGS[config]
     r = RNG(seed)
     ids = dc.corner_id.to_numpy()
     perm = r.permutation(len(ids))
     n_test = int(0.2 * len(ids))
     n_val = int(0.1 * len(ids))
-    test_ids = set(ids[perm[:n_test]])
-    val_ids = set(ids[perm[n_test:n_test + n_val]])
-    train_ids = set(ids[perm[n_test + n_val:]])
+    # Ordered, NOT sets. These are only ever iterated -- to build the feature
+    # matrices -- and iteration order over a set of Python strings varies with
+    # PYTHONHASHSEED, so it varies between processes. That order reaches
+    # HistGradientBoosting's `early_stopping` split, which holds out rows by
+    # position: same seed, different row order, different validation set,
+    # different model. Measured spread on `vel` seed 0 across four hash seeds
+    # was auc_direct 0.714-0.741, i.e. wider than the model differences these
+    # configs are compared on, while recv_top3 (order-independent) never
+    # moved. `valid_recv` below stays a set: it is used for membership only.
+    test_ids = ids[perm[:n_test]]
+    val_ids = ids[perm[n_test:n_test + n_val]]
+    train_ids = ids[perm[n_test + n_val:]]
 
     dc_i = dc.set_index("corner_id")
     valid_recv = set(dc[(dc.receiver_found) & (dc.receiver_match_dist <= 10)].corner_id)
 
     # ---------- receiver model ----------
-    gtr, _ = make_groups(dp_f, [c for c in train_ids if c in valid_recv], cand_feats)
-    gte, _ = make_groups(dp_f, [c for c in test_ids if c in valid_recv], cand_feats)
+    gtr, otr = make_groups(dp_f, [c for c in train_ids if c in valid_recv], cand_feats)
+    gte, ote = make_groups(dp_f, [c for c in test_ids if c in valid_recv], cand_feats)
+    gtr = add_globals(gtr, otr, dg_global, recv_gcols)
+    gte = add_globals(gte, ote, dg_global, recv_gcols)
     scaler = StandardScaler().fit(np.vstack([g[0] for g in gtr]))
     Xtr, mtr, ttr = pad_candidates(gtr, scaler)
     Xte, mte, tte = pad_candidates(gte, scaler)
-    nets = [ReceiverNet(len(cand_feats), hidden=16, seed=seed * 10 + k)
-            .fit(Xtr, mtr, ttr) for k in range(3)]
+    nets = [ReceiverNet(len(cand_feats) + len(recv_gcols), hidden=16,
+                        seed=seed * 10 + k).fit(Xtr, mtr, ttr) for k in range(3)]
 
     def recv_proba(X, mask):
         return np.mean([n.predict_proba(X, mask) for n in nets], axis=0)
@@ -376,10 +436,13 @@ def run_seed(seed, config, dc, dp_f, dg_global, results):
     # ---------- decomposed P(shot|corner) via Eq. 1 ----------
     def eq1_probs(corner_ids, uniform=False):
         groups, order = make_groups(dp_f, corner_ids, cand_feats)
-        X, mask, _ = pad_candidates(groups, scaler)
+        X, mask, _ = pad_candidates(
+            add_globals(groups, order, dg_global, recv_gcols), scaler)
         p_recv = recv_proba(X, mask)
         out = {}
         for i, cid in enumerate(order):
+            # pure candidate features: the conditional model prepends the
+            # globals itself, so it must not see the broadcast copy.
             feats = groups[i][0]
             gvec = dg_global.loc[cid, gcols].to_numpy(dtype=float)
             Z = np.hstack([np.tile(gvec, (len(feats), 1)), feats])
@@ -458,6 +521,77 @@ def run_seed(seed, config, dc, dp_f, dg_global, results):
           flush=True)
 
 
+def check_softmax_cancellation(dc, dp_f, dg_global):
+    """Regression guard on the mechanism `add_globals` relies on.
+
+    Claim: a feature constant across a corner's candidates adds the same term
+    to every score, so a LINEAR scorer cancels it exactly in the softmax --
+    appending globals to a linear receiver model is a no-op, and the gain (or
+    loss) can only come from the tanh hidden layer. If someone ever sets
+    hidden=0 "to simplify", the globals silently stop doing anything; this
+    prints the evidence rather than leaving it to be rediscovered.
+
+    Tested at prediction level with weights pinned by hand, not by training:
+    the two nets have different `n_feat`, so their random init would differ in
+    scale and the comparison would be confounded.
+    """
+    cand_feats, _, _, recv_gcols = CONFIGS["vel+delivery+recvg"]
+    # same population the receiver model trains on: a corner with no matched
+    # receiver carries ridx = -1, which would index the padding column and
+    # break the sum-to-zero property the cancellation rests on.
+    valid = dc[(dc.receiver_found) & (dc.receiver_match_dist <= 10)]
+    ids = list(valid.corner_id.to_numpy()[:400])
+    groups, order = make_groups(dp_f, ids, cand_feats)
+    keep = [i for i, (_, ridx) in enumerate(groups) if ridx >= 0]
+    groups, order = [groups[i] for i in keep], [order[i] for i in keep]
+    print(f"  {len(groups)} corners with a matched receiver")
+    aug = add_globals(groups, order, dg_global, recv_gcols)
+    nc, ng = len(cand_feats), len(recv_gcols)
+
+    s_base = StandardScaler().fit(np.vstack([g[0] for g in groups]))
+    s_aug = StandardScaler().fit(np.vstack([g[0] for g in aug]))
+    Xb, mb, tb = pad_candidates(groups, s_base)
+    Xa, ma, _ = pad_candidates(aug, s_aug)
+    r = RNG(0)
+
+    for hidden in (0, 16):
+        base = ReceiverNet(nc, hidden=hidden, seed=1)
+        augn = ReceiverNet(nc + ng, hidden=hidden, seed=2)
+        # pin the candidate-feature weights equal; give the globals arbitrary
+        # nonzero weights, which is exactly what training would leave behind.
+        augn.W1[:nc] = base.W1
+        augn.W1[nc:] = r.normal(0, 1.0, (ng, augn.W1.shape[1]))
+        if hidden:
+            augn.b1, augn.W2 = base.b1.copy(), base.W2.copy()
+        d = np.abs(base.predict_proba(Xb, mb) - augn.predict_proba(Xa, ma)).max()
+        verdict = ("identical -> globals cancel, as claimed" if hidden == 0
+                   else "differs -> globals act through the nonlinearity")
+        print(f"  hidden={hidden:<3} max |p_base - p_aug| = {d:.3e}   {verdict}")
+        if hidden == 0 and d > 1e-12:
+            raise SystemExit("FAIL: linear scorer did not cancel the globals")
+        if hidden == 16 and d < 1e-6:
+            raise SystemExit("FAIL: globals had no effect through the tanh layer")
+
+    # and the gradient the linear model would put on those weights is zero,
+    # so training cannot recover any signal from them either.
+    lin = ReceiverNet(nc + ng, hidden=0, seed=3)
+    s, _ = lin.scores(Xa)
+    s = np.where(ma, s, -1e9)
+    s -= s.max(axis=1, keepdims=True)
+    p = np.exp(s) * ma
+    p /= p.sum(axis=1, keepdims=True)
+    g = p.copy()
+    g[np.arange(len(Xa)), tb] -= 1.0
+    grad = np.einsum("ncf,nc->f", Xa, g / len(Xa))
+    print(f"  linear grad on candidate weights: max |g| = "
+          f"{np.abs(grad[:nc]).max():.3e}")
+    print(f"  linear grad on global    weights: max |g| = "
+          f"{np.abs(grad[nc:]).max():.3e}  (data term only, before L2)")
+    if np.abs(grad[nc:]).max() > 1e-12:
+        raise SystemExit("FAIL: nonzero gradient on cancelled global weights")
+    print("\n  OK -- globals reach the receiver model only via the tanh layer.")
+
+
 def main():
     import os
     sp = os.path.dirname(os.path.abspath(__file__))
@@ -475,24 +609,30 @@ def main():
         configs.append("vel+bio")
     else:
         print("player_bio.parquet not found -> skipping vel+bio config")
+    configs.append("vel+recvg")
     if os.path.exists(f"{sp}/corner_delivery.parquet"):
         dg_global = add_delivery_features(dg_global, sp)
-        configs += ["vel+prekick", "vel+delivery"]
+        configs += ["vel+prekick", "vel+delivery",
+                    "vel+delivery+recvd", "vel+delivery+recvg"]
         if "vel+bio" in configs:
             configs.append("vel+bio+delivery")
     else:
         print("corner_delivery.parquet not found -> skipping delivery configs")
+
+    if "--check-cancel" in sys.argv:
+        check_softmax_cancellation(ok, dp_f, dg_global)
+        return
 
     results = []
     for config in configs:
         for seed in range(5):
             run_seed(seed, config, ok, dp_f, dg_global, results)
     df = pd.DataFrame(results)
-    df.to_csv(f"{sp}/results_seeds.csv", index=False)
+    df.to_csv(f"{sp}/results/results_seeds.csv", index=False)
     print("\n=== summary per config (mean +- std over seeds) ===")
     summary = df.drop(columns="seed").groupby("config").agg(["mean", "std"]).T
     print(summary.round(3))
-    summary.to_csv(f"{sp}/results_summary.csv")
+    summary.to_csv(f"{sp}/results/results_summary.csv")
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@ def main():
     device = pick_device()
     dev = torch.device(device)
     ids, X, F, M, y = load_dataset()
-    split = pd.read_csv(f"{SP}/diffusion_split.csv")
+    split = pd.read_csv(f"{SP}/results/diffusion_split.csv")
     hold = np.where(split.split.to_numpy() == "holdout")[0]
     train_idx = np.where(split.split.to_numpy() == "train")[0]
     model, diff = load_model(device)
@@ -84,8 +84,8 @@ def main():
                  "blue = defense, * = taker, square = GK, arrows = velocity, "
                  "P = independent classifier's shot prob)")
     fig.tight_layout()
-    fig.savefig(f"{SP}/synthetic_gallery.png", dpi=150)
-    print("saved synthetic_gallery.png", flush=True)
+    fig.savefig(f"{SP}/figures/synthetic_gallery.png", dpi=150)
+    print("saved figures/synthetic_gallery.png", flush=True)
 
 
 if __name__ == "__main__":

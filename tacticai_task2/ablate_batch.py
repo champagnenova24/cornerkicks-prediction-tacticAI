@@ -90,7 +90,7 @@ def main():
             print(f"TRAINING FAILED for batch {b}:\n{r.stderr[-800:]}", flush=True)
             continue
         ids, X, F, M, y = load_dataset()
-        split = pd.read_csv(f"{SP}/diffusion_split.csv")
+        split = pd.read_csv(f"{SP}/results/diffusion_split.csv")
         hold_idx = np.where(split.split.to_numpy() == "holdout")[0]
         train_idx = np.where(split.split.to_numpy() == "train")[0]
         print(f"=== evaluating batch={b} ===", flush=True)
@@ -100,8 +100,8 @@ def main():
         rows.append(res)
         print({k: round(v, 3) if isinstance(v, float) else v
                for k, v in res.items()}, flush=True)
-        pd.DataFrame(rows).to_csv(f"{SP}/ablation_batch.csv", index=False)
-    print("done -> ablation_batch.csv", flush=True)
+        pd.DataFrame(rows).to_csv(f"{SP}/results/ablation_batch.csv", index=False)
+    print("done -> results/ablation_batch.csv", flush=True)
 
 
 if __name__ == "__main__":

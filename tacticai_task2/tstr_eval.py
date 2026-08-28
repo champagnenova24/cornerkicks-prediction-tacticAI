@@ -62,7 +62,7 @@ def fit_eval(Xtr, ytr, Xte, yte, seed=0):
 def main():
     device = pick_device()
     ids, X, F, M, y = load_dataset()
-    split = pd.read_csv(f"{SP}/diffusion_split.csv")
+    split = pd.read_csv(f"{SP}/results/diffusion_split.csv")
     hold_idx = np.where(split.split.to_numpy() == "holdout")[0]
     train_idx = np.where(split.split.to_numpy() == "train")[0]
     model, diff = load_model(device)
@@ -99,7 +99,7 @@ def main():
         print(rows[-1], flush=True)
 
     df = pd.DataFrame(rows).round(4)
-    df.to_csv(f"{SP}/tstr_results.csv", index=False)
+    df.to_csv(f"{SP}/results/tstr_results.csv", index=False)
     print(df.to_string(index=False), flush=True)
 
 

@@ -39,6 +39,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+import outdirs  # noqa: F401 -- creates results/ figures/ models/
 SP = os.path.dirname(os.path.abspath(__file__))
 PIPELINE = os.path.join(os.path.dirname(SP), 'pipeline')
 sys.path.insert(0, PIPELINE)
@@ -186,7 +187,7 @@ def main():
     corners = pd.read_parquet(f'{SP}/corners.parquet')
     real = pd.read_parquet(f'{SP}/corner_players.parquet')
     syn = pd.read_parquet(f'{SP}/synthetic_corners.parquet')
-    split = pd.read_csv(f'{SP}/diffusion_split.csv')
+    split = pd.read_csv(f'{SP}/results/diffusion_split.csv')
     hold = set(split[split.split == 'holdout'].corner_id)
 
     # Reading 416 event files is the slow part and the result never changes;
@@ -223,7 +224,7 @@ def main():
     for v in ['real_label', 'shot1', 'shot0']:
         parts.append(consistency(syn[syn.variant == v], dl_h, v))
     cons = pd.concat(parts, ignore_index=True)
-    cons.to_csv(f'{SP}/ball_consistency.csv', index=False)
+    cons.to_csv(f'{SP}/results/ball_consistency.csv', index=False)
 
     print(f'\n=== ball consistency on {cons[cons.variant=="real"].shape[0]} '
           f'holdout corners ===')
@@ -275,8 +276,8 @@ def main():
                  'orange = ball path (dot size = height), X = arrival point',
                  fontsize=10)
     fig.tight_layout()
-    fig.savefig(f'{SP}/synthetic_trajectories.png', dpi=150)
-    print('\nwrote ball_consistency.csv, synthetic_trajectories.png')
+    fig.savefig(f'{SP}/figures/synthetic_trajectories.png', dpi=150)
+    print('\nwrote results/ball_consistency.csv, figures/synthetic_trajectories.png')
 
 
 if __name__ == '__main__':

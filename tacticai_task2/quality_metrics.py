@@ -28,6 +28,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+import outdirs  # noqa: F401 -- creates results/ figures/ models/
 SP = os.path.dirname(os.path.abspath(__file__))
 RNG = np.random.default_rng(0)
 BINS = np.linspace(0, 40, 17)          # 16 bins for distance histograms
@@ -199,7 +200,7 @@ def main():
     dc = pd.read_parquet(f"{SP}/corners.parquet")
     ok = dc[(dc.n_att_visible >= 5) & (dc.n_def_visible >= 5)].corner_id
     dp_all = dp_all[dp_all.corner_id.isin(ok)]
-    split = pd.read_csv(f"{SP}/diffusion_split.csv")
+    split = pd.read_csv(f"{SP}/results/diffusion_split.csv")
     hold_ids = set(split[split.split == "holdout"].corner_id)
     train_ids = set(split[split.split == "train"].corner_id)
 
@@ -249,7 +250,7 @@ def main():
         res[f"viol_{k}_syn"] = float(v_s[k])
 
     out = pd.Series(res).round(4)
-    out.to_csv(f"{SP}/quality_metrics.csv")
+    out.to_csv(f"{SP}/results/quality_metrics.csv")
     print("\n=== quality metrics ===")
     print(out.to_string(), flush=True)
 
@@ -275,9 +276,9 @@ def main():
     fig.suptitle("Synthetic corner quality: spatial structure and memorization"
                  " check")
     fig.tight_layout()
-    fig.savefig(f"{SP}/quality_metrics.png", dpi=150)
-    pd.concat(pcf_rows).to_csv(f"{SP}/quality_pcf.csv", index=False)
-    print("saved quality_metrics.png / quality_pcf.csv", flush=True)
+    fig.savefig(f"{SP}/figures/quality_metrics.png", dpi=150)
+    pd.concat(pcf_rows).to_csv(f"{SP}/results/quality_pcf.csv", index=False)
+    print("saved figures/quality_metrics.png / results/quality_pcf.csv", flush=True)
 
 
 if __name__ == "__main__":

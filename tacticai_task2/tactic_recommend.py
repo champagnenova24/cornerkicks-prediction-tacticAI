@@ -103,7 +103,7 @@ def target_point_and_flight(dl):
 def main():
     device = pick_device()
     ids, X, F, M, y = load_dataset()
-    split = pd.read_csv(f'{SP}/diffusion_split.csv')
+    split = pd.read_csv(f'{SP}/results/diffusion_split.csv')
     hold_idx = np.where(split.split.to_numpy() == 'holdout')[0]
     train_idx = np.where(split.split.to_numpy() == 'train')[0]
     model, diff = load_model(device)
@@ -230,7 +230,7 @@ def main():
     df['gain_mean_draw'] = df.p_ev_mean - df.p_ev_original
     # the number the old code reported: select and measure with one model
     df['gain_biased'] = df.p_sel_selected - df.p_sel_original
-    df.to_csv(f'{SP}/tactic_recommendation.csv', index=False)
+    df.to_csv(f'{SP}/results/tactic_recommendation.csv', index=False)
 
     print(f'\n=== recommendation over {len(df)} long holdout corners ===')
     print(f'  delivery target : ({tx:.1f}, {ty:.1f})  '
@@ -352,7 +352,7 @@ def main():
         'X = arrival; gray = original attacker position -> recommended',
         fontsize=10)
     fig.tight_layout(rect=[0, 0, 1, 0.97])
-    fig.savefig(f'{SP}/tactic_recommendation.png', dpi=150)
+    fig.savefig(f'{SP}/figures/tactic_recommendation.png', dpi=150)
 
     # ---- gallery: one example per observed delivery zone -------------------
     # The recommended target is the SAME point every time -- the per-corner
@@ -408,10 +408,11 @@ def main():
         'Gold band = the recommended target region; the X is one reconstructed '
         'path into it, not a claim about the exact yard.', fontsize=11)
     fig2.tight_layout(rect=[0, 0, 1, 0.95])
-    fig2.savefig(f'{SP}/tactic_recommendation_gallery.png', dpi=140)
+    fig2.savefig(f'{SP}/figures/tactic_recommendation_gallery.png', dpi=140)
 
-    print(f'\nwrote tactic_recommendation.csv, tactic_recommendation.png '
-          f'({len(picks)} examples), tactic_recommendation_gallery.png '
+    print(f'\nwrote results/tactic_recommendation.csv, '
+          f'figures/tactic_recommendation.png ({len(picks)} examples), '
+          f'figures/tactic_recommendation_gallery.png '
           f'({len(gpicks)} examples)')
 
 

@@ -138,7 +138,7 @@ def technique_effect(dg_real, meta, y):
 def main():
     device = pick_device()
     ids, X, F, M, y = load_dataset()
-    split = pd.read_csv(f'{SP}/diffusion_split.csv')
+    split = pd.read_csv(f'{SP}/results/diffusion_split.csv')
     hold_idx = np.where(split.split.to_numpy() == 'holdout')[0]
     train_idx = np.where(split.split.to_numpy() == 'train')[0]
     model, diff = load_model(device)
@@ -264,7 +264,7 @@ def main():
     df['gain_shape_mean'] = df.p_shape_mean - df.p_original
     df['gain_delivery'] = df.p_joint - df.p_shape_only
     df['gain_total'] = df.p_joint - df.p_original
-    df.to_csv(f'{SP}/tactic_joint.csv', index=False)
+    df.to_csv(f'{SP}/results/tactic_joint.csv', index=False)
 
     print(f'\n=== joint recommendation, {len(df)} swung holdout corners ===')
     print(f'  mean P(shot)  original {df.p_original.mean():.3f}'
@@ -314,8 +314,8 @@ def main():
                  'delivery type\nblue = defence, held fixed; gray = original '
                  'attacker position -> recommended', fontsize=10)
     fig.tight_layout()
-    fig.savefig(f'{SP}/tactic_joint.png', dpi=150)
-    print('\nwrote tactic_joint.csv, tactic_joint.png')
+    fig.savefig(f'{SP}/figures/tactic_joint.png', dpi=150)
+    print('\nwrote results/tactic_joint.csv, figures/tactic_joint.png')
 
 
 if __name__ == '__main__':

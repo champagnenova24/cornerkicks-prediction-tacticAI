@@ -86,7 +86,7 @@ def constraint_stats(dp):
 def main(device=None):
     device = device or (pick_device())
     ids, X, F, M, y = load_dataset()
-    split = pd.read_csv(f'{SP}/diffusion_split.csv')
+    split = pd.read_csv(f'{SP}/results/diffusion_split.csv')
     hold_mask = split.split.to_numpy() == 'holdout'
     hold_idx, train_idx = np.where(hold_mask)[0], np.where(~hold_mask)[0]
     model, diff = load_model(device)
@@ -133,7 +133,7 @@ def main(device=None):
     real_row = {'arm': 'REAL holdout'}
     real_row.update(constraint_stats(dp_real_hold))
     res = pd.DataFrame(rows + [real_row])
-    res.to_csv(f'{SP}/ablation_projection.csv', index=False)
+    res.to_csv(f'{SP}/results/ablation_projection.csv', index=False)
 
     def show(cols, title, fmt='{:.3f}'):
         print(f'\n=== {title} ===')
@@ -163,7 +163,7 @@ def main(device=None):
             verdict = 'CHANGED' if abs(d.mean()) > 2 * d.std() else 'within noise'
             print(f'    {k:>8}: {d.mean():+.4f}  '
                   f'(per-seed sd {d.std():.4f}) -> {verdict}')
-    print('\nwrote ablation_projection.csv')
+    print('\nwrote results/ablation_projection.csv')
 
 
 if __name__ == '__main__':

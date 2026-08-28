@@ -109,7 +109,7 @@ def draw_corner(ax, g, title):
 def main(device=None):
     device = device or (pick_device())
     ids, X, F, M, y = load_dataset()
-    split = pd.read_csv(f"{SP}/diffusion_split.csv")
+    split = pd.read_csv(f"{SP}/results/diffusion_split.csv")
     hold_mask = split.split.to_numpy() == "holdout"
     hold_idx = np.where(hold_mask)[0]
     train_idx = np.where(~hold_mask)[0]
@@ -183,7 +183,7 @@ def main(device=None):
         "real_holdout_std": G_real_hold.std(),
         "synthetic_std": G_syn["real_label"].std(),
     }).round(3)
-    dist.to_csv(f"{SP}/diffusion_distributions.csv")
+    dist.to_csv(f"{SP}/results/diffusion_distributions.csv")
 
     # ---------- 4. figure ----------
     fig, axes = plt.subplots(2, 3, figsize=(11, 7))
@@ -199,7 +199,7 @@ def main(device=None):
     fig.suptitle("Real vs diffusion-generated corners (red = attack, "
                  "* = taker, square = GK, arrows = velocity)")
     fig.tight_layout()
-    fig.savefig(f"{SP}/real_vs_synthetic.png", dpi=150)
+    fig.savefig(f"{SP}/figures/real_vs_synthetic.png", dpi=150)
 
     # ---------- save ----------
     syn_all = pd.concat([v.assign(variant=k) for k, v in dp_syn.items()])
@@ -209,7 +209,7 @@ def main(device=None):
                      "guidance_real": GUIDANCE_REAL,
                      "guidance_ctrl": GUIDANCE_CTRL,
                      "ddim_steps": DDIM_STEPS})
-    res.to_csv(f"{SP}/diffusion_eval.csv")
+    res.to_csv(f"{SP}/results/diffusion_eval.csv")
     print(res.round(3), flush=True)
 
 
