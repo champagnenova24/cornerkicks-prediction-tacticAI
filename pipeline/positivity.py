@@ -11,11 +11,16 @@ Reports, over the 360 causal core:
   2. empirical propensities and how much mass sits near zero
   3. what happens to support as the action space is refined to target zones
   4. the concrete shoot-vs-pass contrast, by pitch region
+  5. the state refined by the freeze frame -- opponents near the ball -- with
+     the camera polygon deciding when that count is a real zero and when it
+     is unobserved, and what the refinement costs in support
 """
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 from common import PROCESSED, ZONE_ROWS
+from visibility import disc_visible_frac, load_polygons
 
 MIN_SUPPORT = 10          # observations of an action in a bin to call it supported
 ACTIONS = ['pass', 'carry', 'cross', 'dribble', 'shot']
@@ -28,7 +33,8 @@ def zone_label(z):
 
 def main():
     dp = pd.read_parquet(f'{PROCESSED}/decision_points.parquet',
-                         columns=['x', 'y', 'action_type', 'action_zone',
+                         columns=['uuid', 'x', 'y', 'action_type', 'action_zone',
+                                  'play_pattern',
                                   'under_pressure', 'n_opponents_visible',
                                   'xg_after', 'goal_after'])
     n = len(dp)
@@ -114,6 +120,116 @@ def main():
     print('\n  do(shoot) in the own half is a structural violation, not a data')
     print('  shortage: nobody shoots from there because it is not a real option.')
     print('  Averaging a do(shoot) effect over all states silently includes it.')
+
+    local_density_section(dp, tab)
+
+
+LOCAL_R = 5.0         # yd around the ball
+SEEN = 0.9            # share of that disc inside the camera polygon to trust a count
+LOCAL_LEVELS = ['0 opp', '1 opp', '2+ opp', 'unobserved']
+
+
+def local_density(dp):
+    """Opponents within LOCAL_R of the ball, and whether a low count is real.
+
+    A count of 2+ is known even when part of the disc is off camera (it can
+    only be higher). A count of 0 or 1 is only trusted when the camera saw
+    at least SEEN of the disc; otherwise it is 'unobserved', not zero.
+    """
+    want = set(dp.uuid)
+    cnt = pd.Series(0, index=dp.uuid.to_numpy())
+    ball = dp.set_index('uuid')[['x', 'y']]
+    for b in pq.ParquetFile(f'{PROCESSED}/freeze_frames.parquet').iter_batches(
+            batch_size=2_000_000, columns=['uuid', 'x', 'y', 'teammate']):
+        f = b.to_pandas()
+        f = f[~f.teammate & f.uuid.isin(want)]
+        bx = ball.x.reindex(f.uuid).to_numpy()
+        by = ball.y.reindex(f.uuid).to_numpy()
+        near = np.hypot(f.x.to_numpy() - bx, f.y.to_numpy() - by) < LOCAL_R
+        add = f[near].groupby('uuid').size()
+        cnt.loc[add.index] += add.to_numpy()
+    polys = load_polygons(f'{PROCESSED}/visible_area.parquet')
+    vis = np.array([disc_visible_frac(polys.get(u), x, y, LOCAL_R)
+                    for u, x, y in zip(dp.uuid, dp.x, dp.y)])
+    n = cnt.reindex(dp.uuid).to_numpy()
+    level = np.select([n >= 2, vis < SEEN, n == 1], ['2+ opp', 'unobserved', '1 opp'],
+                      default='0 opp')
+    return n, vis, level
+
+
+def local_density_section(dp, coarse_tab):
+    print(f'\n=== 5. refining the state with the freeze frame: opponents within '
+          f'{LOCAL_R:.0f} yd of the ball ===')
+    n, vis, level = local_density(dp)
+    dp['local'] = level
+    naive_zero = (n == 0)
+    print(f'a raw count of 0 on {naive_zero.mean()*100:.1f}% of decisions; for '
+          f'{(naive_zero & (vis < SEEN)).sum() / naive_zero.sum()*100:.1f}% of '
+          f'those the camera saw less than {SEEN:.0%} of the disc,')
+    print('so reading the freeze frame alone would call them "unpressured" when '
+          'they are unobserved.')
+    band = pd.cut(dp.x, [0, 60, 90, 102, 121],
+                  labels=['own half', '60-90', '90-102', '102-120 (box)'])
+    share = pd.crosstab(band, dp.local, normalize='index')[LOCAL_LEVELS] * 100
+    print('\nlocal state by pitch band (% of decisions):')
+    print(share.round(1).to_string())
+
+    lcode = dp.local.map({k: i for i, k in enumerate(LOCAL_LEVELS)})
+    dp['state_ff'] = dp.state * 4 + lcode
+    tab = pd.crosstab(dp.state_ff, dp.action_type)
+    for a in ACTIONS:
+        if a not in tab:
+            tab[a] = 0
+    tab = tab[ACTIONS]
+    sizes = tab.sum(axis=1)
+    total = len(dp)
+    print(f'\nstate bins: {len(coarse_tab)} (zone x pressure) -> {len(tab)} '
+          f'(x local density); median decisions per bin '
+          f'{coarse_tab.sum(axis=1).median():.0f} -> {sizes.median():.0f}')
+    print(f'{"action":>9}  {"zero-bin mass, coarse":>22}  {"refined":>8}  '
+          f'{"<10 obs, coarse":>16}  {"refined":>8}')
+    cs = coarse_tab.sum(axis=1)
+    for a in ACTIONS:
+        z0 = cs[coarse_tab[a] == 0].sum() / total * 100
+        z1 = sizes[tab[a] == 0].sum() / total * 100
+        t0 = cs[coarse_tab[a] < MIN_SUPPORT].sum() / total * 100
+        t1 = sizes[tab[a] < MIN_SUPPORT].sum() / total * 100
+        print(f'{a:>9}  {z0:>21.1f}%  {z1:>7.1f}%  {t0:>15.1f}%  {t1:>7.1f}%')
+    print('  (share of all decisions sitting in a bin where the action has 0 /')
+    print(f'   fewer than {MIN_SUPPORT} observations)')
+
+    box = dp[(dp.x >= 102) & (dp.y >= 18) & (dp.y <= 62)
+             & dp.action_type.isin(['shot', 'pass'])]
+    g = box.groupby('local')
+    out = pd.DataFrame({'decisions': g.size(),
+                        'P(shoot | shoot or pass)': g.action_type.apply(
+                            lambda v: (v == 'shot').mean()),
+                        'mean xg_after': g.xg_after.mean()}).reindex(LOCAL_LEVELS)
+    print('\nthe estimand_box.py population (penalty area, shoot vs pass) by '
+          'local density:')
+    print(out.round(3).to_string())
+    unobs = (box.local == 'unobserved').mean()
+    print(f'  {unobs*100:.1f}% of that population has an unobserved local state.')
+    ps = out['P(shoot | shoot or pass)']
+    if ps.between(0.05, 0.95).all():
+        print('  Positivity holds in every local level here -- both actions are')
+        print('  taken under every density -- which is what estimand_box.py needs.')
+    else:
+        print(f'  Positivity FAILS in: {list(ps[~ps.between(0.05, 0.95)].index)}')
+
+    # Penalties: a shot from the spot with play pattern 'Other'. Passing is not
+    # an option, so they are a structural positivity violation, and their
+    # freeze frames have a narrow camera -- they are most of 'unobserved'.
+    pen = ((box.action_type == 'shot') & (box.play_pattern == 'Other')
+           & ((box.x - 108).abs() <= 0.5) & ((box.y - 40).abs() <= 0.5))
+    un = box.local == 'unobserved'
+    print(f'\n  penalties in that population: {int(pen.sum())} of {len(box):,} '
+          f'({pen.mean()*100:.1f}%), all shots by construction -- P(shoot) = 1,')
+    print('  a structural violation like shooting from the own half. They are')
+    print(f'  {int((pen & un).sum())} of the {int(un.sum())} unobserved rows (a '
+          f'penalty frame has a narrow camera),')
+    print('  which is why "unobserved" looks so valuable. Drop them before any')
+    print('  do(shoot) vs do(pass) contrast; estimand_box.py currently keeps them.')
 
 
 if __name__ == '__main__':
