@@ -1,0 +1,101 @@
+level,cell,share,e_p5,e_median,e_p95,pct_below_eps,n,n_state
+zone,near post,0.374447391688771,0.19034430952298217,0.3507418282477277,0.9329340592786631,0.044208664898320066,,
+zone,central,0.4478337754199823,0.03756853191605247,0.46588021809746827,0.5872720943980413,5.172413793103448,,
+zone,far post,0.1317418213969938,0.025672911472768716,0.11923763569464486,0.27290165660762133,6.631299734748011,,
+zone,beyond far post,0.04597701149425287,0.0087423315270188,0.0400717674171716,0.10535645740438548,65.82670203359858,,
+state,packed | att near-loaded | in -> near post,0.3760932944606414,,,,,129.0,343.0
+state,packed | att near-loaded | in -> central,0.4839650145772595,,,,,166.0,343.0
+state,packed | att near-loaded | in -> far post,0.09912536443148688,,,,,34.0,343.0
+state,packed | att near-loaded | in -> beyond far post,0.04081632653061224,,,,,14.0,343.0
+state,packed | att far-loaded | in -> near post,0.2948328267477204,,,,,97.0,329.0
+state,packed | att far-loaded | in -> central,0.5319148936170213,,,,,175.0,329.0
+state,packed | att far-loaded | in -> far post,0.14285714285714285,,,,,47.0,329.0
+state,packed | att far-loaded | in -> beyond far post,0.030395136778115502,,,,,10.0,329.0
+state,packed | att balanced | in -> near post,0.34701492537313433,,,,,93.0,268.0
+state,packed | att balanced | in -> central,0.47388059701492535,,,,,127.0,268.0
+state,packed | att balanced | in -> far post,0.12686567164179105,,,,,34.0,268.0
+state,packed | att balanced | in -> beyond far post,0.05223880597014925,,,,,14.0,268.0
+state,open | att far-loaded | in -> near post,0.33112582781456956,,,,,50.0,151.0
+state,open | att far-loaded | in -> central,0.5165562913907285,,,,,78.0,151.0
+state,open | att far-loaded | in -> far post,0.12582781456953643,,,,,19.0,151.0
+state,open | att far-loaded | in -> beyond far post,0.026490066225165563,,,,,4.0,151.0
+state,open | att far-loaded | out -> near post,0.32666666666666666,,,,,49.0,150.0
+state,open | att far-loaded | out -> central,0.4866666666666667,,,,,73.0,150.0
+state,open | att far-loaded | out -> far post,0.12666666666666668,,,,,19.0,150.0
+state,open | att far-loaded | out -> beyond far post,0.06,,,,,9.0,150.0
+state,open | att balanced | out -> near post,0.3383458646616541,,,,,45.0,133.0
+state,open | att balanced | out -> central,0.41353383458646614,,,,,55.0,133.0
+state,open | att balanced | out -> far post,0.16541353383458646,,,,,22.0,133.0
+state,open | att balanced | out -> beyond far post,0.08270676691729323,,,,,11.0,133.0
+state,open | att near-loaded | out -> near post,0.3888888888888889,,,,,49.0,126.0
+state,open | att near-loaded | out -> central,0.4523809523809524,,,,,57.0,126.0
+state,open | att near-loaded | out -> far post,0.09523809523809523,,,,,12.0,126.0
+state,open | att near-loaded | out -> beyond far post,0.06349206349206349,,,,,8.0,126.0
+state,open | att balanced | in -> near post,0.422680412371134,,,,,41.0,97.0
+state,open | att balanced | in -> central,0.4329896907216495,,,,,42.0,97.0
+state,open | att balanced | in -> far post,0.14432989690721648,,,,,14.0,97.0
+state,open | att balanced | in -> beyond far post,0.0,,,,,0.0,97.0
+state,open | att near-loaded | in -> near post,0.37777777777777777,,,,,34.0,90.0
+state,open | att near-loaded | in -> central,0.5666666666666667,,,,,51.0,90.0
+state,open | att near-loaded | in -> far post,0.03333333333333333,,,,,3.0,90.0
+state,open | att near-loaded | in -> beyond far post,0.022222222222222223,,,,,2.0,90.0
+state,packed | att near-loaded | out -> near post,0.48314606741573035,,,,,43.0,89.0
+state,packed | att near-loaded | out -> central,0.34831460674157305,,,,,31.0,89.0
+state,packed | att near-loaded | out -> far post,0.10112359550561797,,,,,9.0,89.0
+state,packed | att near-loaded | out -> beyond far post,0.06741573033707865,,,,,6.0,89.0
+state,packed | att far-loaded | out -> near post,0.32558139534883723,,,,,28.0,86.0
+state,packed | att far-loaded | out -> central,0.45348837209302323,,,,,39.0,86.0
+state,packed | att far-loaded | out -> far post,0.18604651162790697,,,,,16.0,86.0
+state,packed | att far-loaded | out -> beyond far post,0.03488372093023256,,,,,3.0,86.0
+state,packed | att balanced | out -> near post,0.30864197530864196,,,,,25.0,81.0
+state,packed | att balanced | out -> central,0.48148148148148145,,,,,39.0,81.0
+state,packed | att balanced | out -> far post,0.1728395061728395,,,,,14.0,81.0
+state,packed | att balanced | out -> beyond far post,0.037037037037037035,,,,,3.0,81.0
+state,packed | att far-loaded | straight -> near post,0.19402985074626866,,,,,13.0,67.0
+state,packed | att far-loaded | straight -> central,0.40298507462686567,,,,,27.0,67.0
+state,packed | att far-loaded | straight -> far post,0.26865671641791045,,,,,18.0,67.0
+state,packed | att far-loaded | straight -> beyond far post,0.13432835820895522,,,,,9.0,67.0
+state,packed | att near-loaded | straight -> near post,0.3548387096774194,,,,,11.0,31.0
+state,packed | att near-loaded | straight -> central,0.3225806451612903,,,,,10.0,31.0
+state,packed | att near-loaded | straight -> far post,0.2903225806451613,,,,,9.0,31.0
+state,packed | att near-loaded | straight -> beyond far post,0.03225806451612903,,,,,1.0,31.0
+state,packed | att far-loaded | none -> near post,0.9666666666666667,,,,,29.0,30.0
+state,packed | att far-loaded | none -> central,0.03333333333333333,,,,,1.0,30.0
+state,packed | att far-loaded | none -> far post,0.0,,,,,0.0,30.0
+state,packed | att far-loaded | none -> beyond far post,0.0,,,,,0.0,30.0
+state,open | att far-loaded | straight -> near post,0.13333333333333333,,,,,4.0,30.0
+state,open | att far-loaded | straight -> central,0.36666666666666664,,,,,11.0,30.0
+state,open | att far-loaded | straight -> far post,0.3333333333333333,,,,,10.0,30.0
+state,open | att far-loaded | straight -> beyond far post,0.16666666666666666,,,,,5.0,30.0
+state,open | att balanced | straight -> near post,0.1724137931034483,,,,,5.0,29.0
+state,open | att balanced | straight -> central,0.3103448275862069,,,,,9.0,29.0
+state,open | att balanced | straight -> far post,0.4482758620689655,,,,,13.0,29.0
+state,open | att balanced | straight -> beyond far post,0.06896551724137931,,,,,2.0,29.0
+state,packed | att balanced | straight -> near post,0.2413793103448276,,,,,7.0,29.0
+state,packed | att balanced | straight -> central,0.5862068965517241,,,,,17.0,29.0
+state,packed | att balanced | straight -> far post,0.10344827586206896,,,,,3.0,29.0
+state,packed | att balanced | straight -> beyond far post,0.06896551724137931,,,,,2.0,29.0
+state,open | att far-loaded | none -> near post,1.0,,,,,25.0,25.0
+state,open | att far-loaded | none -> central,0.0,,,,,0.0,25.0
+state,open | att far-loaded | none -> far post,0.0,,,,,0.0,25.0
+state,open | att far-loaded | none -> beyond far post,0.0,,,,,0.0,25.0
+state,open | att balanced | none -> near post,1.0,,,,,20.0,20.0
+state,open | att balanced | none -> central,0.0,,,,,0.0,20.0
+state,open | att balanced | none -> far post,0.0,,,,,0.0,20.0
+state,open | att balanced | none -> beyond far post,0.0,,,,,0.0,20.0
+state,packed | att balanced | none -> near post,1.0,,,,,17.0,17.0
+state,packed | att balanced | none -> central,0.0,,,,,0.0,17.0
+state,packed | att balanced | none -> far post,0.0,,,,,0.0,17.0
+state,packed | att balanced | none -> beyond far post,0.0,,,,,0.0,17.0
+state,open | att near-loaded | straight -> near post,0.4666666666666667,,,,,7.0,15.0
+state,open | att near-loaded | straight -> central,0.3333333333333333,,,,,5.0,15.0
+state,open | att near-loaded | straight -> far post,0.13333333333333333,,,,,2.0,15.0
+state,open | att near-loaded | straight -> beyond far post,0.06666666666666667,,,,,1.0,15.0
+state,packed | att near-loaded | none -> near post,1.0,,,,,14.0,14.0
+state,packed | att near-loaded | none -> central,0.0,,,,,0.0,14.0
+state,packed | att near-loaded | none -> far post,0.0,,,,,0.0,14.0
+state,packed | att near-loaded | none -> beyond far post,0.0,,,,,0.0,14.0
+state,open | att near-loaded | none -> near post,1.0,,,,,12.0,12.0
+state,open | att near-loaded | none -> central,0.0,,,,,0.0,12.0
+state,open | att near-loaded | none -> far post,0.0,,,,,0.0,12.0
+state,open | att near-loaded | none -> beyond far post,0.0,,,,,0.0,12.0

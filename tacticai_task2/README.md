@@ -56,6 +56,7 @@
 > | `delivery_target.py` | **partly current** | Zone ranking superseded by the full set, but its defence-conditional and retention×payoff analyses need freeze frames and exist nowhere else |
 > | `defense_features.py` | **current** | Defensive descriptors incl. the zonal-vs-man marking proxy |
 > | `technique_effect.py` | **current** | Inswing vs outswing: IPW, cluster bootstrap, interaction scan |
+> | `delivery_target_causal.py` | **current** | Target zone as treatment: positivity per zone, IPW/AIPW on the freeze-frame setup |
 > | `synthetic_trajectories.py` | **current** | Ball paths for synthetic corners + ball-consistency metric |
 >
 > ### Run order
@@ -64,7 +65,7 @@
 > extract_corners.py -> onpitch.py -> fetch_bio.py -> add_delivery.py -> train_eval.py
 >                    -> diffusion_corners.py -> diffusion_eval.py -> tactic_recommend.py
 > extract_corners_full.py -> extract_delivery_full.py -> delivery_target_full.py
-> defense_features.py -> technique_effect.py
+> defense_features.py -> technique_effect.py, delivery_target_causal.py
 > ```
 >
 > `extract_corners_full.py` requires `data/processed/decisions.parquet` from the
@@ -734,7 +735,8 @@ is genuinely bad — but it is not `do(aim at zone Z)`, and no zone ranking here
 is adjusted for defensive setup beyond the explicit split above. Establishing
 the causal version needs the corner analog of `estimand_box.py`: target zone as
 treatment, freeze-frame geometry as the adjustment set, positivity checked per
-zone.
+zone. **That is now built — see [the causal zone ranking](#the-causal-zone-ranking-delivery_target_causalpy)
+below: the near-post penalty survives adjustment almost unchanged.**
 
 Figure: `delivery_target.png` — xG and shot-attempt surfaces over the arrival
 point, side by side, which is the clearest picture of how far the two come
@@ -1051,14 +1053,112 @@ outfield defenders, `corr(visible, in-box) = 0.234`. Packed corners average 9.67
 visible defenders against 9.27 for open ones, so framing accounts for roughly a
 tenth of the gap between the groups rather than creating it. Counts are also
 reported as fractions of visible defenders (`def_in6_frac`) so the measures do
-not silently track camera coverage. The principled fix, unused here, is the
-pipeline's `visible_area.parquet` — the camera polygon per event — which
-separates "no defender there" from "cannot see there".
+not silently track camera coverage.
+
+**Is a zero a zero?** The pipeline's `visible_area.parquet` — the camera polygon
+per event — separates "no defender there" from "cannot see there", and
+`defense_features.py` now uses it (via `pipeline/visibility.py`; the polygon is
+reflected into the tacticai frame, which puts 96% of freeze-frame players
+inside it, the rest on its edge). Each region gets the share the camera saw,
+measured over the on-pitch part only since the polygons stop at the touchlines:
+
+| region | fully seen | reading |
+|---|---|---|
+| near post, 3 yd | 100.0% of corners | `near_post_cover = 0` is a real zero on 1,060 of 1,062 corners |
+| far post, 3 yd | 95.0% | 104 of 1,944 far-post zeros are unobserved, not measured (`far_post_cover_obs` is NaN there) |
+| six-yard box | 82.5% | `def_in6` is only a **lower bound** on 17.5% of corners |
+| penalty area | 11.2% (median share seen 0.92) | box-wide counts are routinely censored |
+
+So the post-cover measures were sound as they stood, and the six-yard count —
+the one the earlier "packed box" split rests on — is censored on about one
+corner in six. Re-running the split on the 1,861 corners where the six-yard box
+was fully seen, central is still the best band in both halves (0.0556 open,
+0.0488 packed), as it is on `near_post_cover_obs`. The new columns (`six_vis`,
+`box_vis`, `near_post_vis`, `far_post_vis`, `near_post_cover_obs`,
+`far_post_cover_obs`) are appended to `defense_features.parquet`; every
+original column is unchanged, so `technique_effect.py` and
+`delivery_target_causal.py` read exactly what they read before.
 
 Not captured: defender velocities (available and unused — these are static
 snapshots at the kick), block structure beyond dispersion, and anything about
 personnel. None of these descriptors are adjusted for confounding; they
-describe, they do not identify.
+describe, they do not identify. The next section uses them to identify.
+
+### The causal zone ranking (`delivery_target_causal.py`)
+
+Every zone table above is `E[xG | arrived in Z]`. The defence is set before
+the ball is struck and the taker aims with it in view, so a zone where the
+setup is weak can attract both deliveries and chances. This is the corner
+analog of `pipeline/estimand_box.py`:
+
+- **treatment** — lateral band of the arrival point (near post / central /
+  far post / beyond), 2,262 long corners in 414 matches
+- **adjustment set** — 22 pre-kick covariates from the freeze frame: the 12
+  defensive descriptors above, 7 attacker-geometry features (runners in the
+  six-yard box, per lateral band, mean depth, count), and the swing, which
+  side × foot fixes before the kick. **Excluded on purpose:** velocities (they
+  are flight-window averages, so they contain the run *to* the ball — downstream
+  of the treatment) and pass height (chosen jointly with the target, a
+  co-treatment rather than a confounder)
+- **estimators** — per contrast (each zone vs central): binary propensity on
+  the two zones, trim to [0.05, 0.95], naive vs Hajek IPW vs cross-fitted AIPW
+  (ridge outcome models, 5 folds), 500 match-cluster bootstraps with the
+  propensity refit in every replicate
+
+**Positivity per zone.** A multinomial generalized propensity `e_z(S)`, out of
+fold, beats the marginal (log loss 1.089 vs 1.136 — the setup does predict the
+target, so adjustment has something to do):
+
+| zone | share | `e_z` p5 / median / p95 | corners with `e_z < 0.05` |
+|---|---|---|---|
+| near post | 0.374 | 0.190 / 0.351 / 0.933 | 0.0% |
+| central | 0.448 | 0.038 / 0.466 / 0.587 | 5.2% |
+| far post | 0.132 | 0.026 / 0.119 / 0.273 | 6.6% |
+| **beyond far post** | 0.046 | 0.009 / 0.040 / 0.105 | **65.8%** |
+
+Beyond the far post is essentially never chosen in two thirds of setups, so its
+effect exists only for the states where it is — a local estimand, not a
+pitch-wide one. The state-bin table (`results/delivery_target_positivity.csv`:
+packed/open six-yard box × which side the runners are loaded on × swing) finds
+one structural hole: long corners **without** a recorded swing (118) go to the
+near post in 117 cases. There is no "no-swing corner to the far post" in the
+data to compare against; the pairwise propensities trim those corners out.
+
+**Contrasts, zone minus central** (* = CI excludes 0):
+
+| zone | n | trimmed | xG naive | xG AIPW | 95% CI | shot rate AIPW | goals AIPW |
+|---|---|---|---|---|---|---|---|
+| near post | 847 | 5% | −0.0175 | **−0.0167** | [−0.0278, −0.0050] * | −0.023 | −0.009 (ns) |
+| far post | 298 | 0% | −0.0115 | −0.0097 | [−0.0225, +0.0022] | **+0.185** * | −0.006 (ns) |
+| beyond far post | 104 | 16% | −0.0317 | **−0.0373** | [−0.0532, −0.0047] * | −0.191 * | −0.025 (ns) |
+
+Reading:
+
+1. **The near-post penalty is not setup confounding.** Adjusting for 22
+   features of the defensive and attacking shape at the kick moves it from
+   −0.0175 to −0.0167 — about 5% of the gap. "The near post is worse because
+   that is where the defenders stand" is ruled out as the explanation *for the
+   observed setup*: conditional on the same setup, arriving at the near post is
+   still worth ~0.017 xG less than arriving centrally.
+2. **Far post vs central is still a tie on value** (CI crosses 0), agreeing with
+   the full-set result; and it is again the attempts/value split — far-post
+   arrivals produce +0.185 shot attempts with no xG to show for it.
+3. **Beyond the far post is worst**, but it is the weakest-supported zone (16%
+   trimmed, `e_z < 0.05` on two thirds of corners), so read it as "in the
+   setups where teams do go there".
+4. **No zone moves goals significantly** — the sample is 2,262 corners and goals
+   are ~5% of them; the xG column is the one with power.
+5. **Adjustment barely moves anything.** The zone rankings in
+   `delivery_target.py` / `delivery_target_full.py` were not materially
+   confounded by the observed setup, which is the useful result: the full-set
+   ranking — 17x larger, but unadjustable because it has no freeze frames — can
+   be read with more confidence.
+
+What it still is not: the treatment is where the ball **arrived**, not where it
+was aimed, so an interception at the near post is part of "arrived at the near
+post" — that is a mediator, correctly left unadjusted, and it is most of what
+the remaining gap may be. Personnel (who takes, who attacks the ball) is
+unobserved. Better identified than the zone tables; still not `do(aim at Z)`.
 
 ### TSTR: train on synthetic, test on real (`tstr_eval.py` -> `tstr_results.csv`)
 
@@ -1321,7 +1421,8 @@ Four iterations of the same idea. **Only the last is live.**
 |---|---|---|
 | **`delivery_target_full.py`** | **current** | Authoritative zone analysis on all 41,178 corners. Supersedes the zone ranking in `delivery_target.py`. → `results/delivery_target_full.csv`, `figures/delivery_target_full.png` |
 | `delivery_target.py` | **partly current** | Zone ranking superseded by the full set — but its defence-conditional splits and the retention × payoff decomposition need freeze frames and exist nowhere else. → `results/delivery_target_zones.csv`, `results/delivery_risk_reward.csv`, `figures/delivery_target.png` |
-| `defense_features.py` | current | Defensive descriptors from the freeze frame: six-yard congestion, defensive line, post coverage, keeper depth, and a zonal-vs-man marking proxy (mean defender→nearest-attacker distance). → `defense_features.parquet/.csv` |
+| `defense_features.py` | current | Defensive descriptors from the freeze frame: six-yard congestion, defensive line, post coverage, keeper depth, and a zonal-vs-man marking proxy (mean defender→nearest-attacker distance). Plus how much of each region the camera saw (`*_vis`, from the pipeline's `visible_area.parquet`) and post-cover counts that are NaN when a zero was unobserved (`*_cover_obs`). → `defense_features.parquet/.csv` |
+| `delivery_target_causal.py` | current | The causal zone ranking: arrival zone as treatment, 22 pre-kick freeze-frame covariates as the adjustment set, positivity per zone and per state bin, naive / IPW / cross-fitted AIPW with match-cluster bootstraps. → `results/delivery_target_causal.csv`, `results/delivery_target_positivity.csv` |
 | `technique_effect.py` | current | Inswinging vs outswinging on attempts / xG / goals: raw, IPW-adjusted, cluster-bootstrapped, plus a nine-stratum interaction scan. The evidence the delivery recommendation rests on. → `results/technique_effect.csv`, `results/technique_interactions.csv` |
 
 ### Things that can mislead you
@@ -1420,6 +1521,22 @@ orphan by construction.
 `tactic_suggest.py` reads like the main entry point and is not — see the
 recommendation lineage above. `tactic_recommend.py` is the live one.
 
+#### 7. Rebuilding the pipeline today silently drops 5 corners
+
+StatsBomb's current copy of `three-sixty/3845506.json` is corrupt upstream
+(`JSONDecodeError` at char 2,637,824; the blob GitHub serves is itself broken,
+not a bad download). Stage 5 skips it and logs it to
+`data/processed/stage5_skipped.txt`, so anything that joins corners to
+`decision_points.parquet` loses that match's 5 corners — the committed
+`defense_features.parquet` was built from a readable copy and has 2,262 rows,
+a rebuild from today's data would have 2,257. `defense_features.py` now takes
+`xg_after` / `goal_after` from `decisions.parquet` instead (same stage-4
+values, no 360 dependency, off-camera events excluded exactly as stage 5 does),
+and reproduces all 2,262 rows. Across machines, expect last-digit float
+differences in the CSVs (e.g. `2.0205917073200355` vs `…036`) from BLAS
+versions; the unmodified code shows the same, and nothing moves at the
+precision anything is quoted at.
+
 ### Output collisions
 
 Three filenames are written by more than one script, across all 42 distinct
@@ -1470,7 +1587,7 @@ iterations do not collide with anything.
 ## Reproduce
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r ../requirements.txt
 .venv/bin/python extract_corners.py   # ~2 min, needs ~/Desktop/open-data-master
 .venv/bin/python onpitch.py
 .venv/bin/python fetch_bio.py         # ~30 min, hits the Wikidata API
@@ -1479,8 +1596,9 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python diffusion_eval.py    # sample + evaluate + figure
 ```
 
-(`requirements.txt` covers the tabular pipeline; the diffusion scripts
-additionally need `torch` and `matplotlib`.)
+(The top-level `requirements.txt` covers everything, `torch` and `matplotlib`
+included. There is deliberately no second copy in this directory: the old one
+was a subset without them.)
 
 Two checks worth running after any change to paths or to the receiver model:
 
