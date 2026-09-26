@@ -35,6 +35,7 @@
 > | `train_eval.py` | **current** | Receiver + shot models, Eq. 1, 9 configs × 5 seeds. `--check-cancel` runs the softmax-cancellation guard instead of training |
 > | `diffusion_corners.py` | **current** | Set-diffusion model, training, DDIM sampler |
 > | `diffusion_eval.py` | **current** | Realism discriminators + guidance check |
+> | `diffusion_delivery.py`, `delivery_eval.py` | **current** | Delivery-conditioned generator (end point, technique, height) and its evaluation against the blind model |
 > | `quality_metrics.py`, `tstr_eval.py`, `gallery.py` | **current** | Extended metrics, TSTR, figures |
 > | `ablate_batch.py`, `ablate_projection.py` | **current** | Ablation records (both negative results) |
 > | `finish_ablation.py` | helper | One-off: evaluates the batch-512 checkpoint. Not an entry point |
@@ -64,6 +65,7 @@
 > ```
 > extract_corners.py -> onpitch.py -> fetch_bio.py -> add_delivery.py -> train_eval.py
 >                    -> diffusion_corners.py -> diffusion_eval.py -> tactic_recommend.py
+>                    -> synthetic_trajectories.py -> diffusion_delivery.py -> delivery_eval.py
 > extract_corners_full.py -> extract_delivery_full.py -> delivery_target_full.py
 > defense_features.py -> technique_effect.py, delivery_target_causal.py
 > ```
@@ -680,7 +682,8 @@ The delivery half becomes genuinely conditional once the generator itself is
 delivery-aware (see the ball-consistency section) — then technique enters the
 setup rather than being pasted onto a fixed one, and "an inswinger to the near
 post against THIS defence" is a query the model can answer instead of a column
-in a one-hot.
+in a one-hot. `diffusion_delivery.py` is that generator; the recommender has
+not been rebuilt on it yet.
 
 Figure: `tactic_joint.png` — defence identical across both panels, attackers
 moved, delivery switched.
@@ -1343,6 +1346,104 @@ Figure: `synthetic_trajectories.png` — three high deliveries, real above,
 generated below, ball path in orange with dot size tracking height and X at the
 arrival point.
 
+**Tested in the next section: the delivery half of this prediction holds, the
+goalmouth half does not.**
+
+### Delivery-conditioned generator (`diffusion_delivery.py`, `delivery_eval.py`)
+
+The same denoiser (1.11M params, same split, same schedule), told the delivery:
+the arrival point is concatenated to every player slot's input — so "player
+minus ball" is linear in the first layer — and end point, technique and height
+are embedded into the global conditioning alongside time and label. Label and
+delivery are dropped independently (15% each), so one checkpoint serves
+(label, delivery), either alone, or neither. 30k steps at batch 256 on CPU
+(4 cores, ~2.5 h); the committed delivery-blind model had 60k.
+
+Three comparisons isolate the delivery's effect:
+
+- **baseline** — the committed delivery-blind model, exactly as in the README
+  above
+- **blind** — the new checkpoint with the delivery dropped: same weights, same
+  training budget, so `delivery − blind` is the conditioning alone
+- **shuffled** — each holdout corner generated with *another* corner's ball
+  (a derangement among long deliveries). If the model uses the ball, players go
+  to the ball they were given, not the one the roster really had
+
+Attacker within 3 yd of the arrival point, 485 holdout corners (w = 1):
+
+| arm | at kick | at arrival |
+|---|---|---|
+| real | 46.8% | 73.0% |
+| baseline (committed, blind) | 32.8% | 33.8% |
+| blind (new checkpoint, ball dropped) | 33.4% | 34.4% |
+| **delivery (real ball)** | **39.4%** | **53.4%** |
+| shuffled — near the ball it was **given** | 39.2% | **55.9%** |
+| shuffled — near its **own** (unseen) ball | 36.9% | 37.7% |
+
+**The model uses the ball.** Against its own blind mode it gains +19 pts at
+arrival and +6 pts at the kick, and the shuffle is the decisive control:
+generated players converge on the ball they were told about (55.9%) and not on
+the one the roster actually had (37.7%, back to the blind level). That closes
+about half the arrival gap (34 → 53 of 73) and about 45% of the kick-time gap
+(33 → 39 of 47).
+
+Read the two columns differently. "At arrival" advances players by their
+generated velocities, and the model has learned that attackers run toward the
+ball — which is right, but it is the same partly-definitional quantity flagged
+for the real row. **"At kick" uses no velocity**, so +6 pts there is the clean
+evidence that the delivery moves where players *stand*, not only where they
+run.
+
+What did **not** move:
+
+| | baseline | blind | delivery | real |
+|---|---|---|---|---|
+| players in the 6-yd box | 28.7% | 30.6% | 31.0% | 35.1% |
+| attackers in the 6-yd box | 15.6% | 17.3% | 17.8% | 21.8% |
+| HGB discriminator AUC (10 splits, sd ≈ 0.02) | 0.716 | 0.690 | 0.667 | — |
+| MLP discriminator F1 | 0.626 | 0.623 | 0.618 | — |
+| label guidance gap, P(shot) shot=1 − shot=0 (w = 2) | +0.066 | — | +0.019 | — |
+
+1. **The goalmouth shortfall is not explained by the missing delivery.**
+   Conditioning adds +0.4 pts over its own blind mode; the gap to real is still
+   4 pts. The previous section's "one missing input accounts for both
+   symptoms" is half right — the arrival-point gap was the delivery, the
+   6-yard-box gap is something else. That puts the coordinate-parameterization
+   hypothesis from the projection ablation (absolute (x, y) under an ε-MSE
+   objective smoothing the sharpest density on the pitch) back at the front.
+2. **Realism improves modestly**: HGB AUC 0.716 → 0.667, about half of it from
+   the new training run itself (blind 0.690) and half from the conditioning
+   (−0.023, ~1 sd of the split noise). Real, but not the step change the
+   ball-consistency numbers are.
+3. **Label guidance weakens with the ball fixed** (+0.019 vs +0.066). Much of
+   what "shot vs no shot" used to steer — where players stand relative to
+   where the ball goes — is now carried by the delivery itself, so the label
+   has less left to explain. Guidance at w = 2 also costs ball consistency
+   (48% vs 53% at arrival): extrapolating on the label pulls samples away from
+   the ball.
+4. **The effect arrived late in training.** At step 12,500 (raw weights, 128
+   long corners) real-ball and blind sampling were identical (39.1% vs 39.1%),
+   though the denoising loss already ranked real < blind < shuffled at every
+   noise level. The model learns the average setup first and the
+   delivery-specific adjustment after; more steps (the baseline had 60k) may
+   well help further.
+
+**The query this was for now works.** `delivery_conditioning.png` takes one
+holdout roster and asks for three deliveries — an inswinger to the near post,
+an inswinger to the central six-yard box, an outswinger to the far post — three
+draws each, plus the density over all 485 holdout rosters per query. The crowd
+moves with the requested arrival point. Two caveats carry over from the leakage
+boundary: the delivery is known only after the kick, so for positions at the
+kick this is "setups that precede a delivery like this" (the taker picking the
+ball to fit the setup, as much as the setup being built for the ball), not a
+causal instruction; and the defenders' response is learned from what defences
+did before such balls, which they could not see coming.
+
+Outputs: `models/diffusion_delivery.pt`, `results/delivery_eval.csv`,
+`results/delivery_ball_consistency.csv`, `results/diffusion_delivery_loss.csv`,
+`synthetic_corners_delivery.parquet` (blind / delivery / shuffled / shot1 /
+shot0 variants), `figures/delivery_conditioning.png`.
+
 ## Files
 
 Every script, grouped by role, with its status. **Superseded scripts are kept
@@ -1393,6 +1494,8 @@ on them can condition on the defensive setup.
 | `diffusion_eval.py` | current | Sampling, discriminator realism test, guidance check, distribution table, figure. → `synthetic_corners.parquet`, `results/diffusion_eval.csv`, `results/diffusion_distributions.csv`, `figures/real_vs_synthetic.png` |
 | `quality_metrics.py` | current | Extended generative metrics: MMD², 1-NN, precision/recall/density/coverage, constraint violations. → `results/quality_metrics.csv`, `results/quality_pcf.csv`, `figures/quality_metrics.png` |
 | `tstr_eval.py` | current | Train-on-synthetic, test-on-real for the shot classifier. → `results/tstr_results.csv` |
+| `diffusion_delivery.py` | current | The generator conditioned on the delivery (end point, technique, height) as well as the label; independent dropout of both, so the same checkpoint also samples delivery-blind. Resumable checkpoints. → `models/diffusion_delivery.pt`, `results/diffusion_delivery_loss.csv` |
+| `delivery_eval.py` | current | Delivery vs blind vs shuffled-delivery arms, ball consistency, goalmouth occupancy, discriminators, label guidance, and the three-query figure. → `results/delivery_eval.csv`, `results/delivery_ball_consistency.csv`, `synthetic_corners_delivery.parquet`, `figures/delivery_conditioning.png` |
 | `gallery.py` | current | Real vs shot=0/shot=1-guided generations per template, plus a sample-diversity row. → `figures/synthetic_gallery.png` |
 | `synthetic_trajectories.py` | current | Reconstructs ball paths for synthetic corners (importing the pipeline's `ball_trajectory`) and measures ball-consistency: does a generated setup converge on where the ball actually arrives. → `synthetic_corner_trajectories.parquet`, `results/ball_consistency.csv`, `figures/synthetic_trajectories.png` |
 
@@ -1578,6 +1681,8 @@ iterations do not collide with anything.
 | `onpitch.parquet` | Per corner: attacking/defending player-id lists and GK ids |
 | `player_bio.parquet` / `.csv` | Per player: name, Wikidata QID, height_cm, weight_kg (unit-cleaned) |
 | `models/diffusion_model.pt` | Trained EMA checkpoint (1.09M params, 60k steps) |
+| `models/diffusion_delivery.pt` | Delivery-conditioned EMA checkpoint (1.11M params, 30k steps); load via `diffusion_delivery.load_model()` |
+| `synthetic_corners_delivery.parquet` | Delivery-model generations per holdout template: `blind`, `delivery`, `shuffled`, `shot1`, `shot0` |
 | `models/diffusion_model_b{64,128,256,512}.pt` | Batch-ablation checkpoints; load via `load_model(tag="_b128")` |
 | `results/diffusion_split.csv` | Train/holdout template split used by every diffusion experiment |
 | `results/diffusion_loss.csv`, `results/diffusion_loss_b*.csv` | Training loss curves |
