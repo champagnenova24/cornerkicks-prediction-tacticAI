@@ -1468,7 +1468,8 @@ What did **not** move:
    symptoms" is half right — the arrival-point gap was the delivery, the
    6-yard-box gap is something else. That puts the coordinate-parameterization
    hypothesis from the projection ablation (absolute (x, y) under an ε-MSE
-   objective smoothing the sharpest density on the pitch) back at the front.
+   objective smoothing the sharpest density on the pitch) back at the front —
+   tested in the next section, where it closes ~40% of the gap.
 2. **Realism improves modestly**: HGB AUC 0.716 → 0.667, about half of it from
    the new training run itself (blind 0.690) and half from the conditioning
    (−0.023, ~1 sd of the split noise). Real, but not the step change the
@@ -1501,6 +1502,63 @@ Outputs: `models/diffusion_delivery.pt`, `results/delivery_eval.csv`,
 `results/delivery_ball_consistency.csv`, `results/diffusion_delivery_loss.csv`,
 `synthetic_corners_delivery.parquet` (blind / delivery / shuffled / shot1 /
 shot0 variants), `figures/delivery_conditioning.png`.
+
+### Warped coordinates close part of the goalmouth gap (`diffusion_delivery.py --coords warp`)
+
+The delivery ruled itself out as the cause of the six-yard-box shortfall, which
+put the coordinate hypothesis from the projection ablation back in front:
+absolute (x, y) under an ε-MSE objective spends the same resolution on every
+yard of the pitch, and the six-yard box is the sharpest density on it. The warp
+moves each player to radius `6·log(1 + r/6)` from the goal centre, same
+direction (divided by 10 for scale) — smooth and invertible, unlike polar
+coordinates, which wrap and are singular at the goal. A yard at 2 yd from goal
+gets about 4× the room of a yard at 20. Positions only; velocities, the
+delivery input and everything else are unchanged. The delivery's arrival point
+is warped the same way, so player-minus-ball stays linear in the first layer.
+
+Same architecture, split, seeds, 30k steps and evaluation as the linear
+delivery model — the only difference is the coordinate map:
+
+| | baseline (committed) | linear delivery | **warp delivery** | real |
+|---|---|---|---|---|
+| players in the 6-yd box | 28.7% | 31.0% | **32.7%** | 35.1% |
+| attackers in the 6-yd box | 15.6% | 17.8% | **19.5%** | 21.8% |
+| attacker ≤ 3 yd of the arrival point, at kick | 32.8% | 39.4% | **43.7%** | 46.8% |
+| … at arrival | 33.8% | 53.4% | **57.5%** | 73.0% |
+| shuffled ball: near the given / own ball, at arrival | — | 55.9 / 37.7% | 59.2 / 36.3% | — |
+| HGB discriminator AUC (10 splits, sd ≈ 0.02) | 0.716 | 0.667 | **0.616** | — |
+| MLP discriminator AUC / F1 | 0.684 / 0.626 | 0.653 / 0.618 | **0.569 / 0.547** | — |
+| players off the pitch | 4.2% | 3.8% | 4.3% | 0.5% |
+| label guidance gap (w = 2) | +0.066 | +0.019 | +0.028 | — |
+
+1. **The goalmouth gap shrinks by about 40%** (6.4 → 2.4 pts from the
+   baseline; 4.1 → 2.4 from the linear delivery model), for players and
+   attackers alike. It was the parameterization, at least in part — the first
+   change in this project that has moved it, after capacity, steps, batch size,
+   pitch projection and the delivery all did not.
+2. **Realism improves the most it ever has.** MLP F1 0.547 is within noise of
+   the TacticAI paper's CVAE (0.53 ± 0.05, "indistinguishable"), and on the
+   stronger HGB discriminator AUC falls to 0.616. The warp's blind mode alone
+   gets HGB AUC 0.630 and 32.2% in the six-yard box, so most of this comes from
+   the coordinates, not from the ball.
+3. **Ball-following gets better too** (+4 pts at the kick and at arrival over
+   linear), and the shuffle control still separates cleanly (59% near the
+   ball it was given, 36% near its own).
+4. **What it does not fix**: off-pitch placements (4.3%, unchanged) and the
+   remaining 2.4-pt goalmouth gap.
+
+**Caveat: one training run per arm.** The discriminator splits give the sd
+shown, but seed-to-seed training variance is not measured, and the earlier
+batch-size ablation saw single-run differences of ~0.04 AUC. The goalmouth and
+ball-consistency gains are consistent in direction across every metric, which
+is the reason to believe them; a second seed would settle the size. The
+recommender (`tactic_recommend_delivery.py`) still uses the linear checkpoint
+it was evaluated with.
+
+Outputs: `models/diffusion_delivery_warp.pt`, `results/delivery_eval_warp.csv`,
+`results/delivery_ball_consistency_warp.csv`,
+`results/diffusion_delivery_loss_warp.csv`,
+`synthetic_corners_delivery_warp.parquet`, `figures/delivery_conditioning_warp.png`.
 
 ## Files
 
@@ -1552,8 +1610,8 @@ on them can condition on the defensive setup.
 | `diffusion_eval.py` | current | Sampling, discriminator realism test, guidance check, distribution table, figure. → `synthetic_corners.parquet`, `results/diffusion_eval.csv`, `results/diffusion_distributions.csv`, `figures/real_vs_synthetic.png` |
 | `quality_metrics.py` | current | Extended generative metrics: MMD², 1-NN, precision/recall/density/coverage, constraint violations. → `results/quality_metrics.csv`, `results/quality_pcf.csv`, `figures/quality_metrics.png` |
 | `tstr_eval.py` | current | Train-on-synthetic, test-on-real for the shot classifier. → `results/tstr_results.csv` |
-| `diffusion_delivery.py` | current | The generator conditioned on the delivery (end point, technique, height) as well as the label; independent dropout of both, so the same checkpoint also samples delivery-blind. Resumable checkpoints. → `models/diffusion_delivery.pt`, `results/diffusion_delivery_loss.csv` |
-| `delivery_eval.py` | current | Delivery vs blind vs shuffled-delivery arms, ball consistency, goalmouth occupancy, discriminators, label guidance, and the three-query figure. → `results/delivery_eval.csv`, `results/delivery_ball_consistency.csv`, `synthetic_corners_delivery.parquet`, `figures/delivery_conditioning.png` |
+| `diffusion_delivery.py` | current | The generator conditioned on the delivery (end point, technique, height) as well as the label; independent dropout of both, so the same checkpoint also samples delivery-blind. `--coords warp` trains in goal-centred log-warped coordinates (`models/diffusion_delivery_warp.pt`; the best generator in the project). Resumable checkpoints. → `models/diffusion_delivery.pt`, `results/diffusion_delivery_loss.csv` |
+| `delivery_eval.py` | current | `--tag` picks the checkpoint (`_warp` for the warped-coordinate model) and suffixes the outputs. Delivery vs blind vs shuffled-delivery arms, ball consistency, goalmouth occupancy, discriminators, label guidance, and the three-query figure. → `results/delivery_eval.csv`, `results/delivery_ball_consistency.csv`, `synthetic_corners_delivery.parquet`, `figures/delivery_conditioning.png` |
 | `gallery.py` | current | Real vs shot=0/shot=1-guided generations per template, plus a sample-diversity row. → `figures/synthetic_gallery.png` |
 | `synthetic_trajectories.py` | current | Reconstructs ball paths for synthetic corners (importing the pipeline's `ball_trajectory`) and measures ball-consistency: does a generated setup converge on where the ball actually arrives. → `synthetic_corner_trajectories.parquet`, `results/ball_consistency.csv`, `figures/synthetic_trajectories.png` |
 
@@ -1742,6 +1800,8 @@ collide with anything.
 | `player_bio.parquet` / `.csv` | Per player: name, Wikidata QID, height_cm, weight_kg (unit-cleaned) |
 | `models/diffusion_model.pt` | Trained EMA checkpoint (1.09M params, 60k steps) |
 | `models/diffusion_delivery.pt` | Delivery-conditioned EMA checkpoint (1.11M params, 30k steps); load via `diffusion_delivery.load_model()` |
+| `models/diffusion_delivery_warp.pt` | Same, trained in warped coordinates; `diffusion_delivery.load_model(tag='_warp')` reads the coordinate system from the checkpoint, decode samples with `to_yards(z, model.coords)` |
+| `synthetic_corners_delivery_warp.parquet` | Warp-model generations, same variants as the linear file |
 | `synthetic_corners_delivery.parquet` | Delivery-model generations per holdout template: `blind`, `delivery`, `shuffled`, `shot1`, `shot0` |
 | `models/diffusion_model_b{64,128,256,512}.pt` | Batch-ablation checkpoints; load via `load_model(tag="_b128")` |
 | `results/diffusion_split.csv` | Train/holdout template split used by every diffusion experiment |
