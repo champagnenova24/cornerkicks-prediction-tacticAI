@@ -17,7 +17,18 @@ a population and an overlap region that are actually identified.
 
 Outcomes: xg_after (xG from this decision to the end of the possession,
 inclusive) and goal_after.
+
+PENALTIES ARE EXCLUDED. A penalty is a shot from the spot where passing is not
+an option: P(shoot | penalty) = 1, a structural positivity violation of the
+same kind as shooting from the own half (positivity.py, section 5, found 248 of
+them in this population). Kept in, they are "shots" worth 0.78 xG taken in the
+emptiest possible state, which the propensity model cannot recognise as
+different -- they inflate the naive contrast and ride into the adjusted one.
+`shot_type` comes from StatsBomb's own `shot.type` via stage 2-4.
+`--include-penalties` reproduces the earlier, contaminated population.
 """
+import sys
+
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
@@ -33,11 +44,19 @@ GOAL = np.array([120.0, 40.0])
 TRIM = (0.05, 0.95)
 
 
-def load_box_decisions():
+def load_box_decisions(include_penalties=False):
     dp = pd.read_parquet(f'{PROCESSED}/decision_points.parquet')
+    if 'shot_type' not in dp:
+        raise SystemExit('decision_points.parquet has no shot_type column -- '
+                         'rerun stage234_possessions.py and stage5')
     box = dp[(dp.x >= BOX['x_min']) & (dp.y >= BOX['y_min'])
              & (dp.y <= BOX['y_max'])].copy()
     box = box[box.action_type.isin(['shot', 'pass'])].copy()
+    pen = box.shot_type == 'Penalty'
+    print(f'penalties in the population: {int(pen.sum())} '
+          f'({"KEPT -- the earlier, contaminated estimand" if include_penalties else "dropped"})')
+    if not include_penalties:
+        box = box[~pen].copy()
     box['treat'] = (box.action_type == 'shot').astype(int)
     return box
 
@@ -181,7 +200,7 @@ def report(df, tag):
 
 
 def main():
-    box = load_box_decisions()
+    box = load_box_decisions('--include-penalties' in sys.argv)
     print(f'=== 1. population: the penalty area ===')
     print(f'x >= {BOX["x_min"]:.0f}, {BOX["y_min"]:.0f} <= y <= {BOX["y_max"]:.0f}'
           f'   shots {int((box.treat==1).sum()):,}  passes {int((box.treat==0).sum()):,}')

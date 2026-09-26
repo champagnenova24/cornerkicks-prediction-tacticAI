@@ -156,6 +156,11 @@ def extract_decisions(pos_events, possession_team_id):
             atype = 'shot'
             success = detail.get('outcome', {}).get('name') == 'Goal'
             xg = detail.get('statsbomb_xg', 0.0)
+        # Open Play / Penalty / Free Kick / Corner / Kick Off; None for non-shots.
+        # Penalties matter for causal work: passing is not an option from the
+        # spot, so they are a structural positivity violation for shoot vs pass.
+        shot_type = (detail.get('type', {}).get('name') if atype == 'shot'
+                     else None)
 
         decisions.append({
             'uuid': e['id'],
@@ -166,6 +171,7 @@ def extract_decisions(pos_events, possession_team_id):
             'zone': SHOT_ZONE if atype == 'shot' else zone_of(ex, ey),
             'success': success,
             'xg': xg,
+            'shot_type': shot_type,
             'under_pressure': bool(e.get('under_pressure', False)),
             'off_camera': bool(e.get('off_camera', False)),
             'player_id': e.get('player', {}).get('id', -1),
@@ -227,7 +233,7 @@ def process_match(fname):
 
 DEC_COLS = ['match_id', 'possession', 'decision_idx', 'uuid', 'team_id',
             'player_id', 'period', 't', 'dt', 'dt_raw', 'type', 'x', 'y',
-            'end_x', 'end_y', 'zone', 'success', 'xg', 'under_pressure',
+            'end_x', 'end_y', 'zone', 'success', 'xg', 'shot_type', 'under_pressure',
             'off_camera', 'play_pattern', 'n_remaining', 'xg_after',
             'goal_after', 'terminal_outcome']
 

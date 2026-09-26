@@ -53,7 +53,55 @@ import torch.nn as nn
 import outdirs  # noqa: F401 -- creates results/ figures/ models/
 from diffusion_corners import (SP, MAXP, CH, FLAGS, T_STEPS, LR, EMA_DECAY,
                                P_UNCOND, JITTER_M, TimeEmbed, Diffusion,
-                               load_dataset, pick_device, _sync)
+                               load_dataset, pick_device, _sync, denormalize)
+
+# Coordinate parameterization of the POSITION channels.
+#   linear -- diffusion_corners.normalize: the pitch maps onto [-1, 1]^2, so a
+#             yard is worth the same everywhere
+#   warp   -- goal-centred log warp: a player at distance r from the goal
+#             centre is placed at radius WARP_S * log(1 + r / WARP_S), same
+#             direction, divided by WARP_DIV. Resolution is highest where the
+#             density is sharpest (the six-yard box: 1 yd at r = 2 is ~4x
+#             larger than 1 yd at r = 20) and the map is smooth and invertible,
+#             unlike polar (r, theta), which wraps and is singular at r = 0.
+# Velocities stay linear (yd/s / 5) in both.
+COORDS = ('linear', 'warp')
+WARP_S = 6.0
+WARP_DIV = 10.0
+GOAL_XY = (120.0, 40.0)
+
+
+def warp(x, y, xp=np):
+    dx, dy = x - GOAL_XY[0], y - GOAL_XY[1]
+    r = xp.sqrt(dx * dx + dy * dy)
+    k = WARP_S * xp.log1p(r / WARP_S) / (r + 1e-9) / WARP_DIV
+    return dx * k, dy * k
+
+
+def unwarp(u, v, xp=np):
+    q = xp.sqrt(u * u + v * v) * WARP_DIV
+    r = WARP_S * xp.expm1(q / WARP_S)
+    k = r / (q + 1e-9)
+    return GOAL_XY[0] + u * WARP_DIV * k, GOAL_XY[1] + v * WARP_DIV * k
+
+
+def to_model(Xn, coords):
+    """diffusion_corners-normalized arrays -> this model's space."""
+    if coords == 'linear':
+        return Xn
+    Y = denormalize(Xn)
+    out = Xn.copy()
+    out[..., 0], out[..., 1] = warp(Y[..., 0], Y[..., 1])
+    return out.astype(np.float32)
+
+
+def to_yards(Z, coords):
+    """Model-space samples -> yards and yd/s, like diffusion_corners.denormalize."""
+    out = denormalize(Z)
+    if coords == 'warp':
+        out[..., 0], out[..., 1] = unwarp(Z[..., 0], Z[..., 1])
+    return out
+
 
 TECHNIQUES = ['Inswinging', 'Outswinging', 'Straight', None]
 HEIGHTS = ['High Pass', 'Low Pass', 'Ground Pass']
@@ -64,19 +112,22 @@ BATCH = 256
 CKPT_EVERY = 2500
 
 
-def encode_delivery(end_x, end_y, technique, height):
-    """One corner's delivery -> DELIV-dim vector (end point normalized like
-    player positions: the pitch maps onto [-1, 1]^2)."""
+def encode_delivery(end_x, end_y, technique, height, coords='linear'):
+    """One corner's delivery -> DELIV-dim vector (end point in the same
+    coordinates as the player positions, so player-minus-ball stays linear)."""
     v = np.zeros(DELIV, dtype=np.float32)
-    v[0] = (end_x - 60.0) / 60.0
-    v[1] = (end_y - 40.0) / 40.0
+    if coords == 'warp':
+        v[0], v[1] = warp(np.float64(end_x), np.float64(end_y))
+    else:
+        v[0] = (end_x - 60.0) / 60.0
+        v[1] = (end_y - 40.0) / 40.0
     t = technique if technique in TECHNIQUES else None
     v[2 + TECHNIQUES.index(t)] = 1.0
     v[2 + len(TECHNIQUES) + HEIGHTS.index(height)] = 1.0
     return v
 
 
-def load_deliveries(ids):
+def load_deliveries(ids, coords='linear'):
     """Delivery vectors aligned to `load_dataset()` ids.
 
     `corner_deliveries.parquet` is already in the tacticai frame (kick at
@@ -85,7 +136,7 @@ def load_deliveries(ids):
     dl = pd.read_parquet(f'{SP}/corner_deliveries.parquet').set_index('corner_id')
     D = np.stack([encode_delivery(r.end_x, r.end_y,
                                   None if pd.isna(r.technique) else r.technique,
-                                  r.height_class)
+                                  r.height_class, coords)
                   for r in dl.loc[list(ids)].itertuples()])
     return D
 
@@ -174,11 +225,13 @@ def ckpt_path(tag=''):
     return f'{SP}/models/diffusion_delivery{tag}.pt'
 
 
-def train(device=None, batch=BATCH, steps=TRAIN_STEPS, tag=''):
+def train(device=None, batch=BATCH, steps=TRAIN_STEPS, tag='', coords='linear'):
     device = device or pick_device()
     torch.manual_seed(0)
     ids, X, F, M, y = load_dataset()
-    D = load_deliveries(ids)
+    D = load_deliveries(ids, coords)
+    if coords == 'warp':
+        X = denormalize(X).astype(np.float32)   # yards; warped per step below
     # Reuse the committed split so every comparison with the delivery-blind
     # model is on the same 485 holdout templates.
     split = pd.read_csv(f'{SP}/results/diffusion_split.csv')
@@ -217,6 +270,7 @@ def train(device=None, batch=BATCH, steps=TRAIN_STEPS, tag=''):
                     'opt': opt.state_dict(), 'losses': losses, 'step': step,
                     'total_steps': steps, 'rng': torch.get_rng_state(),
                     'config': dict(d=160, layers=5, heads=4, T=T_STEPS,
+                                   coords=coords,
                                    batch=batch, p_drop_deliv=P_DROP_DELIV)},
                    path)
 
@@ -227,8 +281,16 @@ def train(device=None, batch=BATCH, steps=TRAIN_STEPS, tag=''):
         idx = torch.randint(0, N, (batch,), device=dev)
         x0 = Xt[idx].clone()
         flags, mask, lab, dv = Ft[idx], Mt[idx], yt[idx].clone(), Dt[idx]
-        x0[..., 0] += torch.randn_like(x0[..., 0]) * (JITTER_M / 60.0)
-        x0[..., 1] += torch.randn_like(x0[..., 1]) * (JITTER_M / 40.0)
+        if coords == 'warp':
+            # jitter in yards, then warp, so the augmentation is 0.25 yd
+            # everywhere rather than 0.25 warped units
+            px = x0[..., 0] + torch.randn_like(x0[..., 0]) * JITTER_M
+            py = x0[..., 1] + torch.randn_like(x0[..., 1]) * JITTER_M
+            x0[..., 0], x0[..., 1] = warp(px, py, xp=torch)
+            x0[..., 2:] = x0[..., 2:] / 5.0
+        else:
+            x0[..., 0] += torch.randn_like(x0[..., 0]) * (JITTER_M / 60.0)
+            x0[..., 1] += torch.randn_like(x0[..., 1]) * (JITTER_M / 40.0)
         lab[torch.rand(batch, device=dev) < P_UNCOND] = 2
         has = (torch.rand(batch, device=dev) >= P_DROP_DELIV).float()
         t = torch.randint(0, T_STEPS, (batch,), device=dev)
@@ -268,6 +330,7 @@ def load_model(device=None, tag=''):
     model = DeliveryDenoiser().to(dev)
     model.load_state_dict(ck['ema'])
     model.eval()
+    model.coords = ck['config'].get('coords', 'linear')
     return model, DeliveryDiffusion(dev)
 
 
@@ -277,5 +340,7 @@ if __name__ == '__main__':
     ap.add_argument('--batch', type=int, default=BATCH)
     ap.add_argument('--steps', type=int, default=TRAIN_STEPS)
     ap.add_argument('--tag', type=str, default='')
+    ap.add_argument('--coords', choices=COORDS, default='linear')
     a = ap.parse_args()
-    train(pick_device(), batch=a.batch, steps=a.steps, tag=a.tag)
+    train(pick_device(), batch=a.batch, steps=a.steps, tag=a.tag,
+          coords=a.coords)

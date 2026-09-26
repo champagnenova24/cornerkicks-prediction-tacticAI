@@ -56,6 +56,7 @@ def process_match(match_id):
                 'action_type': d['type'], 'action_zone': d['zone'],
                 'x': d['x'], 'y': d['y'], 'end_x': d['end_x'], 'end_y': d['end_y'],
                 'success': d['success'], 'xg': d['xg'],
+                'shot_type': d['shot_type'],
                 'under_pressure': d['under_pressure'],
                 'play_pattern': play_pattern,
                 'n_remaining': d['n_remaining'], 'xg_after': d['xg_after'],

@@ -34,7 +34,7 @@ def zone_label(z):
 def main():
     dp = pd.read_parquet(f'{PROCESSED}/decision_points.parquet',
                          columns=['uuid', 'x', 'y', 'action_type', 'action_zone',
-                                  'play_pattern',
+                                  'play_pattern', 'shot_type',
                                   'under_pressure', 'n_opponents_visible',
                                   'xg_after', 'goal_after'])
     n = len(dp)
@@ -217,19 +217,18 @@ def local_density_section(dp, coarse_tab):
     else:
         print(f'  Positivity FAILS in: {list(ps[~ps.between(0.05, 0.95)].index)}')
 
-    # Penalties: a shot from the spot with play pattern 'Other'. Passing is not
-    # an option, so they are a structural positivity violation, and their
-    # freeze frames have a narrow camera -- they are most of 'unobserved'.
-    pen = ((box.action_type == 'shot') & (box.play_pattern == 'Other')
-           & ((box.x - 108).abs() <= 0.5) & ((box.y - 40).abs() <= 0.5))
+    # Penalties (StatsBomb shot.type). Passing is not an option from the spot,
+    # so they are a structural positivity violation, and their freeze frames
+    # have a narrow camera -- they are most of 'unobserved'.
+    pen = box.shot_type == 'Penalty'
     un = box.local == 'unobserved'
     print(f'\n  penalties in that population: {int(pen.sum())} of {len(box):,} '
           f'({pen.mean()*100:.1f}%), all shots by construction -- P(shoot) = 1,')
     print('  a structural violation like shooting from the own half. They are')
     print(f'  {int((pen & un).sum())} of the {int(un.sum())} unobserved rows (a '
           f'penalty frame has a narrow camera),')
-    print('  which is why "unobserved" looks so valuable. Drop them before any')
-    print('  do(shoot) vs do(pass) contrast; estimand_box.py currently keeps them.')
+    print('  which is why "unobserved" looks so valuable. estimand_box.py drops')
+    print('  them (--include-penalties reproduces the old population).')
 
 
 if __name__ == '__main__':
