@@ -40,8 +40,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from diffusion_corners import SP, load_dataset, pick_device, denormalize
-from diffusion_delivery import (load_model, load_deliveries, encode_delivery)
+from diffusion_corners import SP, load_dataset, pick_device
+from diffusion_delivery import (load_model, load_deliveries, encode_delivery,
+                                to_yards)
 from diffusion_eval import to_player_frame, real_player_frame, globals_for
 from ablate_projection import discriminators, constraint_stats
 from synthetic_trajectories import consistency, draw
@@ -67,7 +68,7 @@ def sample(model, diff, F, M, labels, D, idx, guidance, device, seed0=1234):
             None if D is None else torch.tensor(D[s:s + 128]).to(dev),
             steps=DDIM_STEPS, guidance=guidance, seed=seed0 + s)
         chunks.append(z.cpu().numpy())
-    return denormalize(np.concatenate(chunks))
+    return to_yards(np.concatenate(chunks), COORDS)
 
 
 def summarize_consistency(c):
@@ -80,15 +81,23 @@ def summarize_consistency(c):
     })
 
 
-def main(device=None):
+COORDS = 'linear'      # set from the checkpoint in main()
+
+
+def main(device=None, tag=''):
+    """`tag` picks the checkpoint (models/diffusion_delivery{tag}.pt) and
+    suffixes every output, so the default reproduces the committed files."""
+    global COORDS
     device = device or pick_device()
     ids, X, F, M, y = load_dataset()
     split = pd.read_csv(f'{SP}/results/diffusion_split.csv')
     hold = np.where(split.split.to_numpy() == 'holdout')[0]
     train = np.where(split.split.to_numpy() == 'train')[0]
-    D = load_deliveries(ids)
+    model, diff = load_model(device, tag)
+    COORDS = getattr(model, 'coords', 'linear')
+    print(f'checkpoint diffusion_delivery{tag}.pt, coordinates: {COORDS}')
+    D = load_deliveries(ids, COORDS)
     dl = pd.read_parquet(f'{SP}/corner_deliveries.parquet')
-    model, diff = load_model(device)
 
     # a fixed derangement of the holdout deliveries, restricted to long ones so
     # a shuffled ball is still a real cross into the box
@@ -124,7 +133,7 @@ def main(device=None):
     real = real_player_frame(ids, X, F, M, hold)
     pd.concat([v.assign(variant=k) for k, v in frames.items()
                if k != 'baseline']) \
-        .to_parquet(f'{SP}/synthetic_corners_delivery.parquet', index=False)
+        .to_parquet(f'{SP}/synthetic_corners_delivery{tag}.parquet', index=False)
 
     # ---- 1. ball consistency --------------------------------------------
     dl_h = dl[dl.corner_id.isin(hold_ids)]
@@ -152,7 +161,7 @@ def main(device=None):
     print(tab_long.round(2).to_string())
     pd.concat([tab.assign(subset='all'), tab_long.assign(subset='long')]) \
         .rename_axis('arm').reset_index() \
-        .to_csv(f'{SP}/results/delivery_ball_consistency.csv', index=False)
+        .to_csv(f'{SP}/results/delivery_ball_consistency{tag}.csv', index=False)
 
     # ---- 2. goalmouth + realism + guidance ------------------------------
     gcols = CONFIGS['vel'][1]
@@ -194,7 +203,7 @@ def main(device=None):
     res.loc['delivery', 'p_shot_shot1'] = p1
     res.loc['delivery', 'p_shot_shot0'] = p0
     res.loc['delivery', 'guidance_gap'] = p1 - p0
-    res.to_csv(f'{SP}/results/delivery_eval.csv')
+    res.to_csv(f'{SP}/results/delivery_eval{tag}.csv')
 
     print('\n=== 2. goalmouth occupancy (% of players; attackers for att_) ===')
     print(res[['in_6yd_box_pct', 'att_in_6yd_pct', 'in_18yd_box_pct',
@@ -207,9 +216,9 @@ def main(device=None):
           f'gap {p1 - p0:+.3f}  (delivery-blind model: 0.248 / 0.182, +0.066)')
 
     # ---- 5. query figure ------------------------------------------------
-    query_figure(model, diff, ids, F, M, y, hold, dl, device)
-    print('\nwrote results/delivery_eval.csv, results/delivery_ball_consistency.csv,'
-          ' figures/delivery_conditioning.png, synthetic_corners_delivery.parquet')
+    query_figure(model, diff, ids, F, M, y, hold, dl, device, tag)
+    print(f'\nwrote results/delivery_eval{tag}.csv, results/delivery_ball_consistency{tag}.csv,'
+          f' figures/delivery_conditioning{tag}.png, synthetic_corners_delivery{tag}.parquet')
 
 
 QUERIES = [
@@ -219,7 +228,7 @@ QUERIES = [
 ]
 
 
-def query_figure(model, diff, ids, F, M, y, hold, dl, device, n_draw=3):
+def query_figure(model, diff, ids, F, M, y, hold, dl, device, tag='', n_draw=3):
     """One roster, three delivery queries, n_draw samples each; plus the
     average response of the whole holdout set to the same queries."""
     dev = torch.device(device)
@@ -233,14 +242,14 @@ def query_figure(model, diff, ids, F, M, y, hold, dl, device, n_draw=3):
     fig, axes = plt.subplots(n_draw + 1, len(QUERIES),
                              figsize=(3.6 * len(QUERIES), 3.3 * (n_draw + 1)))
     for col, (name, ex, ey, tech, height) in enumerate(QUERIES):
-        dv = encode_delivery(ex, ey, tech, height)
+        dv = encode_delivery(ex, ey, tech, height, COORDS)
         rep = np.repeat([ti], n_draw)
         z = diff.ddim_sample(
             model, torch.tensor(F[rep]).to(dev), torch.tensor(M[rep]).to(dev),
             torch.full((n_draw,), 2, dtype=torch.long, device=dev),
             torch.tensor(np.repeat(dv[None], n_draw, 0)).to(dev),
             steps=DDIM_STEPS, guidance=1.0, seed=7 + col)
-        Zs = denormalize(z.cpu().numpy())
+        Zs = to_yards(z.cpu().numpy(), COORDS)
         tr = reconstruct((120.0, 0.0), (ex, ey), float(dur[tech]),
                          height_class=height, technique=tech, n_points=60)
         traj = pd.DataFrame({'x': tr['x'], 'y': tr['y'], 'z': tr['z']})
@@ -257,7 +266,7 @@ def query_figure(model, diff, ids, F, M, y, hold, dl, device, n_draw=3):
                 torch.full((len(sl),), 2, dtype=torch.long, device=dev),
                 torch.tensor(np.repeat(dv[None], len(sl), 0)).to(dev),
                 steps=100, guidance=1.0, seed=99 + s).cpu().numpy())
-        P = to_player_frame(ids, denormalize(np.concatenate(zz)), F, M, hold, 'q')
+        P = to_player_frame(ids, to_yards(np.concatenate(zz), COORDS), F, M, hold, 'q')
         ax = axes[n_draw, col]
         for team, c in [(True, 'tab:red'), (False, 'tab:blue')]:
             s = P[(P.teammate == team) & ~P.actor & ~P.keeper]
@@ -269,8 +278,11 @@ def query_figure(model, diff, ids, F, M, y, hold, dl, device, n_draw=3):
                  'deliveries\n(label unconditioned; orange = requested ball, '
                  'X = arrival point)', fontsize=10)
     fig.tight_layout()
-    fig.savefig(f'{SP}/figures/delivery_conditioning.png', dpi=130)
+    fig.savefig(f'{SP}/figures/delivery_conditioning{tag}.png', dpi=130)
 
 
 if __name__ == '__main__':
-    main()
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--tag', default='')
+    main(tag=ap.parse_args().tag)
