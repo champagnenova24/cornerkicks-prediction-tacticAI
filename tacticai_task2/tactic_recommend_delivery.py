@@ -103,12 +103,16 @@ def inpaint(diff, model, x0, known, flags, mask, deliv, seed, steps=STEPS):
     return x
 
 
-def structure(players, tx, ty):
-    """Per-corner structural metrics around the recommended arrival point,
-    from positions at the kick."""
+def structure(players, tx, ty, T):
+    """Per-corner structural metrics around the recommended arrival point:
+    from positions at the kick, and at arrival (position + velocity x the
+    recommended flight time T, as in synthetic_trajectories.py -- velocities
+    are flight-window averages, so this is where a player is when the ball
+    lands)."""
     rows = []
     for cid, g in players.groupby('corner_id', sort=False):
         att = g[g.teammate & ~g.actor]
+        da_arr = np.hypot(att.x + att.vx * T - tx, att.y + att.vy * T - ty)
         dfd = g[~g.teammate & ~g.keeper]
         da = np.hypot(att.x - tx, att.y - ty)
         dd_ = np.hypot(dfd.x - tx, dfd.y - ty)
@@ -116,6 +120,7 @@ def structure(players, tx, ty):
         rows.append(dict(
             corner_id=cid.split('__')[0],
             att_near_target=float((da < NEAR_YD).any()),
+            att_near_target_arrival=float((da_arr < NEAR_YD).any()),
             att_dist_target=float(da.min()) if len(da) else np.nan,
             att_minus_def=float((da < LOCAL_YD).sum() - (dd_ < LOCAL_YD).sum()),
             def_near_target=float((dd_ < NEAR_YD).any()),
@@ -179,9 +184,9 @@ def main(device=None):
         print(f'  draw {k + 1}/{K} done', flush=True)
 
     # ---- structural metrics, averaged over draws --------------------------
-    S = {'as played': structure(frames['as played'], tx, ty)}
+    S = {'as played': structure(frames['as played'], tx, ty, tdur)}
     for a in draws:
-        S[a] = pd.concat([structure(d, tx, ty) for d in draws[a]]) \
+        S[a] = pd.concat([structure(d, tx, ty, tdur) for d in draws[a]]) \
                  .groupby('corner_id', sort=False).mean().reset_index()
 
     # ---- cross-fitted P(shot), as in tactic_recommend.py -------------------
@@ -213,9 +218,10 @@ def main(device=None):
     res.to_csv(f'{SP}/results/tactic_recommendation_delivery.csv', index=False)
 
     summ = res.groupby('arm', sort=False)[
-        ['att_near_target', 'att_dist_target', 'att_minus_def', 'att_in_region',
-         'def_near_target', 'p_shot_ev']].mean()
+        ['att_near_target', 'att_near_target_arrival', 'att_dist_target',
+         'att_minus_def', 'att_in_region', 'def_near_target', 'p_shot_ev']].mean()
     summ['att_near_target'] *= 100
+    summ['att_near_target_arrival'] *= 100
     summ['def_near_target'] *= 100
     print(f'\n=== around the recommended arrival point, at the kick '
           f'({len(hold)} corners, {K} draws per arm) ===')
@@ -224,25 +230,36 @@ def main(device=None):
     # paired contrast with a match-cluster bootstrap: recommended vs old
     mid = dl.match_id
     piv = res.pivot_table(index='corner_id', columns='arm',
-                          values=['att_near_target', 'att_minus_def'])
+                          values=['att_near_target', 'att_near_target_arrival',
+                                  'att_minus_def'])
     piv['match'] = mid.reindex(piv.index).to_numpy()
     rng = np.random.default_rng(0)
-    groups = {m: g for m, g in piv.groupby('match')}
-    um = np.array(list(groups))
-    print('\n  recommended minus old (paired, 1000 match-cluster bootstraps):')
-    for met in ['att_near_target', 'att_minus_def']:
-        diffs = piv[(met, 'recommended')] - piv[(met, 'old')]
-        bs = []
-        for _ in range(1000):
-            pick = rng.choice(um, len(um))
-            bs.append(np.concatenate([
-                (groups[m][(met, 'recommended')] - groups[m][(met, 'old')]).to_numpy()
-                for m in pick]).mean())
-        lo, hi = np.percentile(bs, [2.5, 97.5])
-        scale = 100 if met == 'att_near_target' else 1
-        print(f'    {met:<17} {diffs.mean() * scale:+.3f} '
-              f'[{lo * scale:+.3f}, {hi * scale:+.3f}]'
-              f'{"  *" if not lo < 0 < hi else ""}')
+    # Two contrasts. recommended - old is the whole upgrade; recommended -
+    # observed isolates what being told the RECOMMENDED ball (rather than the
+    # one actually played) adds, on corners whose real ball was far from it.
+    far = dl.reindex(piv.index)
+    far = np.hypot(far.end_x - tx, far.end_y - ty) > 8.0
+    for a, b, sub, lab in [('recommended', 'old', slice(None), 'all corners'),
+                           ('recommended', 'observed', far,
+                            'real ball > 8 yd from the target')]:
+        pv = piv[sub]
+        grp = {m: g for m, g in pv.groupby('match')}
+        um_ = np.array(list(grp))
+        print(f'\n  {a} minus {b}, {lab} (n={len(pv)}; paired, 1000 '
+              f'match-cluster bootstraps):')
+        for met in ['att_near_target', 'att_near_target_arrival', 'att_minus_def']:
+            diffs = pv[(met, a)] - pv[(met, b)]
+            bs = []
+            for _ in range(1000):
+                pick = rng.choice(um_, len(um_))
+                bs.append(np.concatenate([
+                    (grp[m][(met, a)] - grp[m][(met, b)]).to_numpy()
+                    for m in pick]).mean())
+            lo, hi = np.percentile(bs, [2.5, 97.5])
+            scale = 1 if met == 'att_minus_def' else 100
+            print(f'    {met:<24} {diffs.mean() * scale:+.3f} '
+                  f'[{lo * scale:+.3f}, {hi * scale:+.3f}]'
+                  f'{"  *" if not lo < 0 < hi else ""}')
 
     figure(ids, F, M, hold, dl, frames, draws, S, tx, ty, tdur)
     print('\nwrote results/tactic_recommendation_delivery.csv, '
