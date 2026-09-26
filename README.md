@@ -62,7 +62,7 @@ Run from `pipeline/` with the project venv (`.venv/bin/python`):
 | Stage | Script | Output (`data/processed/`) |
 |---|---|---|
 | 1. Corpus split | `stage1_matches.py` | `matches.parquet` — 4,235 matches, `corpus` (pretrain vs causal_core = has 360), `split` (train/val/test by match hash, Women's World Cup 2023 = `ood_test`) |
-| 2–4. Possessions, canonical frame, decision cleaning | `stage234_possessions.py` | `possessions.parquet` — one row per possession with terminal outcome (goal/shot/ball_lost/out/foul_won/…), goal flag, xG sum. `decisions.parquet` — one row per on-ball decision (pass/cross/carry/dribble/shot) by the possession team, coordinates in the canonical attacking frame (goal at x=120), Δt clipped at 10 s, action target discretized to a 12×8 zone grid, outcome-forward labels (`xg_after`, `goal_after`, `n_remaining`) |
+| 2–4. Possessions, canonical frame, decision cleaning | `stage234_possessions.py` | `possessions.parquet` — one row per possession with terminal outcome (goal/shot/ball_lost/out/foul_won/…), goal flag, xG sum. `decisions.parquet` — one row per on-ball decision (pass/cross/carry/dribble/shot) by the possession team, coordinates in the canonical attacking frame (goal at x=120), Δt clipped at 10 s, action target discretized to a 12×8 zone grid, outcome-forward labels (`xg_after`, `goal_after`, `n_remaining`), and `shot_type` (StatsBomb's `shot.type`; flags penalties) |
 | 5. (state, action, outcome) triples | `stage5_decision_points.py` | `decision_points.parquet` — decisions in the 426 matches with 360 coverage, joined to freeze frames, off-camera excluded. `freeze_frames.parquet` — one row per visible player per decision (`teammate`/`actor`/`keeper` flags). `visible_area.parquet` — camera polygon per decision (the missingness mask) |
 | 6. Tensors | `tensorize.py` | `tensors/{train,val,test,ood_test}.npz` — fixed-shape arrays for a set encoder: up to 22 players × (x, y, teammate, actor, keeper) with a slot mask, the camera polygon rasterized to a 16×24 grid of 5-yd cells (`visible`, the attention mask for "unknown" vs "empty"), the action, the next 16 decisions of the possession padded with a mask and a `truncated` flag, and the outcome labels. See below |
 | Checks | `validate.py` | prints corpus stats, invariant assertions, split tables, positivity preview |
@@ -193,10 +193,26 @@ otherwise the state is **unobserved**:
   from the own half, and they are what makes the "unobserved" row look so
   valuable (P(shoot) 0.87, mean xG 0.63): 73 of those 92 are penalties, whose
   freeze frames have a narrow camera. They also inflate the "0 opponents"
-  row. `estimand_box.py` currently keeps them; they should be dropped before
-  its do(shoot) vs do(pass) contrast is quoted. This is exactly the kind of
-  thing the audit exists to find, and it is flagged rather than silently fixed
-  here because it changes a published estimand.
+  row. **`estimand_box.py` now drops them** (see below).
+
+**Penalties in `estimand_box.py` — fixed.** Stages 2–4 now carry StatsBomb's own
+`shot.type` as `shot_type` (Open Play / Penalty / Free Kick / Corner / Kick Off),
+so penalties are flagged by the data rather than by their spot; the flag agrees
+with the geometric rule on 248 of 250. Every other column of `decisions.parquet`
+and `decision_points.parquet` is unchanged. Dropping the 250:
+
+| do(shoot) − do(pass), penalty area | with penalties | without |
+|---|---|---|
+| naive xG (trimmed) | +0.0781 | +0.0671 |
+| IPW xG | +0.0295 [+0.0212, +0.0377] | **+0.0238** [+0.0157, +0.0307] |
+| stratified xG | +0.0273 | +0.0220 |
+| IPW goals | +0.0256 [+0.0113, +0.0392] | **+0.0215** [+0.0070, +0.0339] |
+
+About a fifth of the adjusted effect was penalties. Most of them (212) sat above
+the 0.95 propensity trim and were discarded anyway; the ~38 that survived were
+worth 0.78 xG each and carried the rest. The conclusion — shooting in the box is
+worth more than passing, after adjustment — holds; its size was overstated.
+`estimand_box.py --include-penalties` reproduces the old population.
 
 **Upstream data note.** StatsBomb's current `three-sixty/3845506.json` is
 corrupt at the source (stage 5 skips it and logs it to `stage5_skipped.txt`), so

@@ -12,8 +12,8 @@
 >   need. The second identifies all **41,178 corners** across 4,235 matches, with
 >   no freeze frames. Wider but shallower; neither replaces the other. Same for
 >   `add_delivery.py` (subset) vs `extract_delivery_full.py` (all matches).
-> - **`tactic_suggest3.py` is NOT the live recommender — `tactic_recommend.py`
->   is.** But `tactic_suggest.py` *is* still live as an imported dependency
+> - **`tactic_suggest3.py` is NOT the live recommender — and neither is
+>   `tactic_recommend.py` any more: `tactic_recommend_delivery.py` is.** But `tactic_suggest.py` *is* still live as an imported dependency
 >   (`ddim_inpaint`, `draw_panel`), even though its own published numbers are
 >   superseded. Do not delete it.
 >
@@ -47,7 +47,8 @@
 > | `tactic_suggest.py` | **superseded results, live dependency** | v1. `tactic_recommend.py` imports `ddim_inpaint` and `draw_panel` from it. Its own best-of-6 numbers carry the selection bias |
 > | `tactic_suggest2.py` | superseded | v2, best-of-k selection — the bias itself |
 > | `tactic_suggest3.py` | superseded | v3. Maximised P(shot), which moves attempts but not xG; also single-model selection |
-> | **`tactic_recommend.py`** | **CURRENT** | xG-based, cross-fitted selection, ball path attached. **This is the live recommender** |
+> | `tactic_recommend.py` | superseded | xG-based, cross-fitted selection, ball path attached — but the shape is drawn without knowing the ball |
+> | **`tactic_recommend_delivery.py`** | **CURRENT** | Same target; attackers re-drawn FOR the recommended ball by the delivery-aware generator. **This is the live recommender** |
 >
 > ### Delivery and defence analysis
 >
@@ -66,6 +67,7 @@
 > extract_corners.py -> onpitch.py -> fetch_bio.py -> add_delivery.py -> train_eval.py
 >                    -> diffusion_corners.py -> diffusion_eval.py -> tactic_recommend.py
 >                    -> synthetic_trajectories.py -> diffusion_delivery.py -> delivery_eval.py
+>                    -> tactic_recommend_delivery.py
 > extract_corners_full.py -> extract_delivery_full.py -> delivery_target_full.py
 > defense_features.py -> technique_effect.py, delivery_target_causal.py
 > ```
@@ -843,6 +845,62 @@ robust (+0.105, positive in 8 of 9 strata), so a team that specifically wants
 more attempts — chasing a game, hunting rebounds and second balls — has a real
 reason to outswing. It just does not convert into goals in this data.
 
+#### Rebuilt on the delivery-aware generator (`tactic_recommend_delivery.py`)
+
+The shape above is drawn by the delivery-*blind* generator, guided toward
+shot = 1, and the recommended ball is then pasted on top — the shape never
+knew which ball it was for. `tactic_recommend_delivery.py` redraws it with
+`diffusion_delivery.py`: defence and taker pinned, attackers inpainted **for
+the recommended ball** (same taker and swing, arrival at the empirical centre
+of the target region, (113.5, 40.3)). Three draws per arm, averaged, nothing
+selected. Scored on structure around the target rather than on xG, since
+per-corner xG is not predictable (section above):
+
+| arm (444 long holdout corners) | attacker ≤ 3 yd of target, at kick | … at arrival | attackers − defenders within 5 yd | cross-fitted P(shot) |
+|---|---|---|---|---|
+| as played | 58.6% | 61.7% | −1.85 | 0.185 |
+| old recommender (ball-blind, shot = 1) | 58.9% | 66.1% | −1.98 | 0.213 |
+| new, shape for the ball actually played | 66.1% | 67.7% | −1.68 | 0.191 |
+| **new, shape for the recommended ball** | **66.1%** | **75.5%** | **−1.62** | 0.194 |
+
+Paired, match-cluster bootstrapped:
+
+| contrast | at kick | at arrival | local numbers |
+|---|---|---|---|
+| recommended − old, all 444 | +7.2 [+3.7, +10.8] * | +9.5 [+6.1, +12.4] * | +0.36 [+0.26, +0.46] * |
+| recommended − shape-for-played-ball, the 135 corners whose real ball landed > 8 yd from the target | +0.7 [−3.4, +4.6] | **+13.6 [+8.1, +18.6]** * | +0.12 [+0.03, +0.24] * |
+
+1. **The new recommender puts attackers where the ball is going** — +9.5 pts at
+   arrival over the old one, and a third of a player better local numbers.
+2. **What the recommended ball adds is runs, not starting positions.** The
+   second row is the clean test: same generator, same pinned defence, only the
+   ball it is told differs. Where the real ball went elsewhere, being told the
+   recommended one changes where attackers **arrive** by +13.6 pts and where
+   they **stand** by nothing. This matches `delivery_eval.py` (+19 at arrival,
+   +6 at the kick): with the defence pinned there is little room to move
+   starting positions, and the model has learned that attackers adjust to the
+   ball by running. So the actionable output is "these runs, for that ball".
+3. **Part of the gain is just the better generator**: at the kick, the shape
+   for the ball actually played already matches the recommended one (66.1% vs
+   66.1%), because the target is the central six-yard line where the crowd
+   goes anyway.
+4. **The old recommender scores highest on P(shot)** (0.213) — it was guided
+   toward shots — and the new one does not try to. That is deliberate: P(shot)
+   moves attempts, not value (technique section).
+5. **The reverse query works but says little**: defenders re-drawn for the
+   recommended ball put slightly more bodies near the target (local numbers
+   −2.07 vs −1.85 as played). Defences cannot see the ball coming, so this is
+   "how defences have set up before such balls", not a response.
+
+Arrival uses generated velocities, which the caveat on `delivery_eval.py`
+applies to: attackers running at the ball is what the model learned, and it
+is partly definitional in the real data. `tactic_recommend.py` stays for
+provenance; this script is the live recommender.
+
+Outputs: `results/tactic_recommendation_delivery.csv`,
+`figures/tactic_recommendation_delivery.png` (as played / old / new /
+defence re-drawn, two inswinging and two outswinging corners).
+
 #### Best-of-N adds nothing: the selection bias, measured
 
 Picking the best of N candidates with the same model that then reports the gain
@@ -1509,14 +1567,15 @@ on them can condition on the defensive setup.
 
 ### 6. Recommendation — read this lineage carefully
 
-Four iterations of the same idea. **Only the last is live.**
+Five iterations of the same idea. **Only the last is live.**
 
 | File | Status | What it is |
 |---|---|---|
 | `tactic_suggest.py` | **superseded, live import** | v1. Single guided draw, defenders pinned. Its best-of-6 numbers carry the selection bias, but `tactic_suggest2/3` and `tactic_recommend` all import `ddim_inpaint` and `draw_panel` from it. **Do not delete.** → `tactic_suggestions.csv/.png` |
 | `tactic_suggest2.py` | superseded | v2. Best-of-k candidate selection — the mechanism that turned out to be the bias. Overwrites `tactic_suggestions.csv/.png`, so whichever of v1/v2 ran last owns those files. → `tactic_suggestions.csv/.png`, `tactic_best_players.parquet` |
 | `tactic_suggest3.py` | superseded | v3. Joint shape + delivery, conditioned on the defence. Wrong on two counts: it maximised P(shot) (which moves attempts but not xG) and it selected and scored with one model. → `results/tactic_joint.csv`, `figures/tactic_joint.png` |
-| **`tactic_recommend.py`** | **CURRENT** | The live recommender. xG-based rather than P(shot); cross-fitted selector/evaluator so the reported gain is unbiased; reconstructed ball path attached to every recommendation. → `results/tactic_recommendation.csv`, `figures/tactic_recommendation.png`, `figures/tactic_recommendation_gallery.png` |
+| `tactic_recommend.py` | superseded, live import | Was the live recommender; `tactic_recommend_delivery.py` imports its target definition (`target_point_and_flight`, `TARGET_*`). xG-based rather than P(shot); cross-fitted selector/evaluator so the reported gain is unbiased; reconstructed ball path attached to every recommendation. → `results/tactic_recommendation.csv`, `figures/tactic_recommendation.png`, `figures/tactic_recommendation_gallery.png` |
+| **`tactic_recommend_delivery.py`** | **CURRENT** | The live recommender: defence pinned, attackers re-drawn by `diffusion_delivery.py` for the recommended ball; structural metrics around the target at the kick and at arrival, cross-fitted P(shot), paired match-cluster bootstraps. → `results/tactic_recommendation_delivery.csv`, `figures/tactic_recommendation_delivery.png` |
 
 ### 7. Delivery and defence analysis
 
@@ -1622,7 +1681,7 @@ orphan by construction.
 #### 6. A superseded script with the most authoritative-looking name
 
 `tactic_suggest.py` reads like the main entry point and is not — see the
-recommendation lineage above. `tactic_recommend.py` is the live one.
+recommendation lineage above. `tactic_recommend_delivery.py` is the live one.
 
 #### 7. Rebuilding the pipeline today silently drops 5 corners
 
@@ -1664,9 +1723,10 @@ checkpoint that took ~45 minutes to train, with no warning. The five committed
 checkpoints (`diffusion_model.pt` plus `_b64/_b128/_b256/_b512`) are each the
 product of one such run.
 
-`tactic_suggest3.py` and `tactic_recommend.py` write under distinct names
-(`tactic_joint.*` and `tactic_recommendation*`), so the two most recent
-iterations do not collide with anything.
+`tactic_suggest3.py`, `tactic_recommend.py` and `tactic_recommend_delivery.py`
+write under distinct names (`tactic_joint.*`, `tactic_recommendation*` and
+`tactic_recommendation_delivery*`), so the three most recent iterations do not
+collide with anything.
 
 ### Data files
 
